@@ -9,6 +9,7 @@ from datetime import date
 from PySide6 import QtCore, QtWidgets
 
 from ..repo import ComboItem, get_patient, list_admission_channels, upsert_patient
+from .admission_channels_dialog import AdmissionChannelsDialog
 
 
 @dataclass(frozen=True)
@@ -159,7 +160,17 @@ class PatientDialog(QtWidgets.QDialog):
 
         # Admission channel
         self.channel_combo = QtWidgets.QComboBox()
-        form.addRow(self._bold_label("Канал поступления:"), self.channel_combo)
+        self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
+        self.channel_settings_btn = QtWidgets.QToolButton()
+        self.channel_settings_btn.setText("⚙")
+        self.channel_settings_btn.setToolTip("Настройки каналов поступления")
+        self.channel_settings_btn.clicked.connect(self._open_channel_settings)
+        channel_row = QtWidgets.QHBoxLayout()
+        channel_row.addWidget(self.channel_combo, 1)
+        channel_row.addWidget(self.channel_settings_btn)
+        channel_container = QtWidgets.QWidget()
+        channel_container.setLayout(channel_row)
+        form.addRow(self._bold_label("Канал поступления:"), channel_container)
 
         root.addLayout(form)
 
@@ -206,7 +217,12 @@ class PatientDialog(QtWidgets.QDialog):
         self.channel_combo.addItem("Выберите", None)
         for item in self._channel_items:
             self.channel_combo.addItem(item.name, item.id)
-        self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
+
+    @QtCore.Slot()
+    def _open_channel_settings(self) -> None:
+        dlg = AdmissionChannelsDialog(parent=self)
+        dlg.exec()
+        self._load_channels()
 
     def _load_patient_if_needed(self) -> None:
         if not self.patient_id:
@@ -363,4 +379,3 @@ class PatientDialog(QtWidgets.QDialog):
 
         self.saved.emit(PatientDialogResult(new_id))
         self.accept()
-
