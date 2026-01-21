@@ -9,6 +9,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ..db import connect
 from ..repo import get_protocol_draft_id, load_protocol_values
 
+TEMPLATE_MULTI_DELIM = " | "
+
 
 @dataclass(frozen=True)
 class FieldMeta:
@@ -47,6 +49,14 @@ class FieldBinding:
         if isinstance(w, QtWidgets.QPlainTextEdit):
             return w.toPlainText()
         if isinstance(w, QtWidgets.QComboBox):
+            if w.property("template_multi"):
+                model = w.model()
+                values = [
+                    model.item(i).text()
+                    for i in range(model.rowCount())
+                    if model.item(i).checkState() == QtCore.Qt.CheckState.Checked
+                ]
+                return TEMPLATE_MULTI_DELIM.join(values)
             return w.currentText()
         if isinstance(w, QtWidgets.QDateEdit):
             return w.date().toString("dd.MM.yyyy")
@@ -61,12 +71,28 @@ class FieldBinding:
         elif isinstance(w, QtWidgets.QPlainTextEdit):
             w.setPlainText(value)
         elif isinstance(w, QtWidgets.QComboBox):
-            idx = w.findText(value)
-            if idx >= 0:
-                w.setCurrentIndex(idx)
+            if w.property("template_multi"):
+                model = w.model()
+                if value:
+                    if TEMPLATE_MULTI_DELIM in value:
+                        parts = [p.strip() for p in value.split(TEMPLATE_MULTI_DELIM) if p.strip()]
+                    else:
+                        parts = [value.strip()]
+                else:
+                    parts = []
+                for i in range(model.rowCount()):
+                    item = model.item(i)
+                    item.setCheckState(
+                        QtCore.Qt.CheckState.Checked if item.text() in parts else QtCore.Qt.CheckState.Unchecked
+                    )
+                w.setEditText(" ".join(parts))
             else:
-                # fallback: allow user value
-                w.setCurrentText(value)
+                idx = w.findText(value)
+                if idx >= 0:
+                    w.setCurrentIndex(idx)
+                else:
+                    # fallback: allow user value
+                    w.setCurrentText(value)
         elif isinstance(w, QtWidgets.QDateEdit):
             qd = QtCore.QDate.fromString(value, "dd.MM.yyyy")
             if qd.isValid():
@@ -382,19 +408,54 @@ class ProtocolBuilderQt(QtCore.QObject):
             if self._read_only:
                 te.setReadOnly(True)
             w = te
-        elif t == "словарь" or t == "шаблон":
+        elif t == "словарь":
             cb = QtWidgets.QComboBox()
-            # По просьбе: для типа "шаблон" нужно уметь вводить свой текст,
-            # а также выбирать из заранее заданных значений.
-            cb.setEditable(t == "шаблон")
-            if t == "шаблон":
-                cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
             vals = conn.execute(
                 "SELECT value FROM dictionary_values WHERE field_id = ? ORDER BY display_order",
                 (meta.id,),
             ).fetchall()
             for v in vals:
                 cb.addItem(str(v["value"]))
+            if self._read_only:
+                cb.setEnabled(False)
+            w = cb
+        elif t == "шаблон":
+            cb = QtWidgets.QComboBox()
+            cb.setProperty("template_multi", True)
+            cb.setEditable(True)
+            if cb.lineEdit():
+                cb.lineEdit().setReadOnly(True)
+            cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+            model = QtGui.QStandardItemModel(cb)
+            vals = conn.execute(
+                "SELECT value FROM dictionary_values WHERE field_id = ? ORDER BY display_order",
+                (meta.id,),
+            ).fetchall()
+            for v in vals:
+                item = QtGui.QStandardItem(str(v["value"]))
+                item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                item.setData(QtCore.Qt.CheckState.Unchecked, QtCore.Qt.ItemDataRole.CheckStateRole)
+                model.appendRow(item)
+            cb.setModel(model)
+
+            def _toggle_item(idx: QtCore.QModelIndex) -> None:
+                item = model.itemFromIndex(idx)
+                if not item:
+                    return
+                state = item.checkState()
+                item.setCheckState(
+                    QtCore.Qt.CheckState.Unchecked
+                    if state == QtCore.Qt.CheckState.Checked
+                    else QtCore.Qt.CheckState.Checked
+                )
+                values = [
+                    model.item(i).text()
+                    for i in range(model.rowCount())
+                    if model.item(i).checkState() == QtCore.Qt.CheckState.Checked
+                ]
+                cb.setEditText(" ".join(values))
+
+            cb.view().pressed.connect(_toggle_item)
             if self._read_only:
                 cb.setEnabled(False)
             w = cb
@@ -527,6 +588,9 @@ class ProtocolBuilderQt(QtCore.QObject):
     def _recalculate_formulas(self) -> None:
         if self._loading:
             return
+        if self._has_missing_required_fields():
+            self._clear_formula_fields()
+            return
         for fid, binding in self.fields.items():
             if binding.meta.field_type != "формула":
                 continue
@@ -549,6 +613,26 @@ class ProtocolBuilderQt(QtCore.QObject):
                 self._loading = False
             self._check_reference(fid)
 
+    def _has_missing_required_fields(self) -> bool:
+        for b in self.fields.values():
+            if not b.meta.required:
+                continue
+            if b.meta.is_hidden and not b.container.isVisible():
+                continue
+            v = b.get_str()
+            if not v or not v.strip():
+                return True
+        return False
+
+    def _clear_formula_fields(self) -> None:
+        self._loading = True
+        try:
+            for fid, binding in self.fields.items():
+                if binding.meta.field_type == "формула":
+                    binding.set_str("")
+                    self._set_widget_bg(binding.widget, None)
+        finally:
+            self._loading = False
     def _evaluate_formula(self, formula: str) -> float | None:
         # same approach as Tkinter: references like "Вкладка.Группа.Поле"
         try:
@@ -652,4 +736,3 @@ class ProtocolBuilderQt(QtCore.QObject):
             if trigger_id in self.fields and self.field_meta[trigger_id].tab_id == int(tab_id):
                 self._update_hidden(trigger_id)
         self._recalculate_formulas()
-

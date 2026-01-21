@@ -357,14 +357,9 @@ def delete_patient(patient_id: int) -> None:
     with connect() as conn:
         cur = conn.cursor()
         pid = int(patient_id)
-        # Каскадно удаляем протоколы пациента (по требованию UI: можно удалить пациента вместе с записями).
-        prot_ids = [
-            int(r["id"])
-            for r in cur.execute("SELECT id FROM protocols WHERE patient_id = ?", (pid,)).fetchall()
-        ]
-        for pr_id in prot_ids:
-            cur.execute("DELETE FROM protocol_values WHERE protocol_id = ?", (int(pr_id),))
-        cur.execute("DELETE FROM protocols WHERE patient_id = ?", (pid,))
+        count = cur.execute("SELECT COUNT(*) AS cnt FROM protocols WHERE patient_id = ?", (pid,)).fetchone()
+        if count and int(count["cnt"]) > 0:
+            raise ValueError("У пациента есть протоколы. Сначала удалите протоколы, затем пациента.")
         cur.execute("DELETE FROM patients WHERE id = ?", (pid,))
         conn.commit()
 
@@ -1131,4 +1126,3 @@ def finalize_open_protocols(*, patient_id: int, study_type_id: int) -> int:
         )
         conn.commit()
         return int(cur.rowcount or 0)
-
