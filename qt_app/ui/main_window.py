@@ -224,7 +224,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self,
             "Подтверждение удаления",
             "Вы точно хотите удалить выбранного пациента?\n"
-            "Записи (протоколы) будут стерты.",
+            "Если у пациента есть протоколы, удаление невозможно.",
         )
         if reply != QtWidgets.QMessageBox.StandardButton.Yes:
             return
@@ -253,6 +253,13 @@ class MainWindow(QtWidgets.QMainWindow):
         highlight_bg = QtGui.QColor("#FF95A8")
         highlight_fg = QtGui.QColor("#000000")
 
+        last_added_id: int | None = None
+        if select_last_added and self._patients:
+            last_added_id = self._patients[0].id
+
+        if select_patient_id:
+            self._selected_patient_id = int(select_patient_id)
+
         for p in self._patients:
             it = QtWidgets.QTreeWidgetItem([p.full_name])
             it.setData(0, QtCore.Qt.ItemDataRole.UserRole, ("patient", p.id))
@@ -264,7 +271,11 @@ class MainWindow(QtWidgets.QMainWindow):
             ph.setTextAlignment(0, QtCore.Qt.AlignmentFlag.AlignCenter)
             it.addChild(ph)
 
-            if p.id in self._search_highlight_ids:
+            if (
+                p.id in self._search_highlight_ids
+                or p.id == self._selected_patient_id
+                or (last_added_id is not None and p.id == last_added_id)
+            ):
                 f = it.font(0)
                 f.setBold(True)
                 it.setFont(0, f)

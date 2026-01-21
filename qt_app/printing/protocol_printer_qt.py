@@ -14,6 +14,7 @@ from ..paths import protocols_dir, protocols_templates_dir
 from ..repo import get_study_template_variant, upsert_study_template_variant
 from ..ui.protocol_builder_qt import ProtocolBuilderQt
 
+TEMPLATE_MULTI_DELIM = " | "
 
 @dataclass(frozen=True)
 class TemplateChoice:
@@ -237,7 +238,7 @@ class ProtocolPrinterQt:
             # Field mapping for this study
             cur.execute(
                 """
-                SELECT f.id, f.name, f.template_tag
+                SELECT f.id, f.name, f.template_tag, f.field_type
                 FROM fields f
                 JOIN groups g ON f.group_id = g.id
                 JOIN tabs t ON g.tab_id = t.id
@@ -246,7 +247,12 @@ class ProtocolPrinterQt:
                 (study_type_id,),
             )
             field_mapping = [
-                (int(r["id"]), str(r["name"]), str(r["template_tag"]) if r["template_tag"] is not None else None)
+                (
+                    int(r["id"]),
+                    str(r["name"]),
+                    str(r["template_tag"]) if r["template_tag"] is not None else None,
+                    str(r["field_type"]),
+                )
                 for r in cur.fetchall()
             ]
 
@@ -256,10 +262,12 @@ class ProtocolPrinterQt:
                 # - @<НазваниеПоля> (как сейчас)
                 # - @<ID> (надёжно, если в названии есть пробелы/знаки)
                 # - @<Название_с_подчёркиваниями> (на всякий случай)
-                for fid, field_name, template_tag in field_mapping:
+                for fid, field_name, template_tag, field_type in field_mapping:
                     if int(field_id) != int(fid):
                         continue
-                    s = value or ""
+                    s = (value or "")
+                    if field_type == "шаблон":
+                        s = s.replace(TEMPLATE_MULTI_DELIM, " ")
                     data[f"@{fid}"] = s
                     data[f"@{field_name}"] = s
                     slug = re.sub(r"\\W+", "_", field_name, flags=re.UNICODE).strip("_")
@@ -349,7 +357,7 @@ class ProtocolPrinterQt:
             # field values (поддерживаем name / id / slug / template_tag)
             cur.execute(
                 """
-                SELECT f.id, f.name, f.template_tag, pv.value
+                SELECT f.id, f.name, f.template_tag, f.field_type, pv.value
                 FROM protocol_values pv
                 JOIN fields f ON pv.field_id = f.id
                 WHERE pv.protocol_id = ?
@@ -361,6 +369,8 @@ class ProtocolPrinterQt:
                 name = str(r["name"] or "").strip()
                 tag = str(r["template_tag"]).strip() if r["template_tag"] is not None else ""
                 val = r["value"] or ""
+                if r["field_type"] == "шаблон":
+                    val = val.replace(TEMPLATE_MULTI_DELIM, " ")
 
                 data[f"@{fid}"] = val
                 if name:
@@ -549,4 +559,3 @@ class ProtocolPrinterQt:
         if 2 <= years % 10 <= 4 and (years % 100 < 10 or years % 100 >= 20):
             return "года"
         return "лет"
-
