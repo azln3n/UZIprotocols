@@ -12,6 +12,16 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
     """
     app.setFont(QtGui.QFont("Arial", 12))
 
+    # Причина "точек" в QTimeEdit/QDateEdit/QSpinBox — системный стиль Windows.
+    # Самый стабильный способ получить нормальные стрелки на всех темах/масштабах — стиль Qt "Fusion".
+    # Он хорошо сочетается с нашим palette + stylesheet.
+    try:
+        fusion = QtWidgets.QStyleFactory.create("Fusion")
+        if fusion is not None:
+            app.setStyle(fusion)
+    except Exception:
+        pass
+
     pal = app.palette()
     pal.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor("#f0f8ff"))  # aliceblue
     pal.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor("#ffffff"))  # input bg
@@ -30,8 +40,10 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         /* Buttons: ensure disabled looks disabled even if per-button stylesheet exists */
         QPushButton, QToolButton {
           padding: 6px 12px;
-          border: 2px solid #9aa0a6; /* серая рамка по умолчанию */
+          border: 2px solid transparent; /* без серой рамки по умолчанию */
           border-radius: 6px;
+          background: #e9ecef; /* единый серый фон */
+          color: black;
         }
         QPushButton:hover, QToolButton:hover {
           border-color: #007bff; /* синяя рамка именно при наведении */
@@ -42,70 +54,57 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         }
 
         /* Inputs */
-        QLineEdit, QComboBox, QDateEdit, QTimeEdit, QTextEdit, QPlainTextEdit {
+        QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {
           background: white;
+          color: #000000;
           border: 1px solid #bbbbbb;
           border-radius: 4px;
           padding: 6px 8px;
         }
-        QLineEdit:hover, QComboBox:hover, QDateEdit:hover, QTimeEdit:hover,
-        QTextEdit:hover, QPlainTextEdit:hover {
+        QLineEdit:hover, QComboBox:hover, QTextEdit:hover, QPlainTextEdit:hover {
           border: 2px solid #007bff;
           padding: 5px 7px;
         }
-        QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QTimeEdit:focus,
-        QTextEdit:focus, QPlainTextEdit:focus {
+        QLineEdit:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus {
           border: 2px solid #007bff;
           padding: 5px 7px;
         }
 
-        /* SpinBox: keep native up/down buttons readable (no "точки") */
-        QSpinBox, QDoubleSpinBox {
+        /* Spin/date/time inputs (keep arrows, but add consistent gray frame) */
+        QAbstractSpinBox {
           background: white;
+          color: #000000;
           border: 1px solid #bbbbbb;
           border-radius: 4px;
           padding: 6px 8px;
-          padding-right: 26px; /* place for arrows */
         }
-        QSpinBox:hover, QDoubleSpinBox:hover,
-        QSpinBox:focus, QDoubleSpinBox:focus {
+        QAbstractSpinBox:hover, QAbstractSpinBox:focus {
           border: 2px solid #007bff;
           padding: 5px 7px;
-          padding-right: 25px;
         }
-        QSpinBox::up-button, QDoubleSpinBox::up-button {
-          subcontrol-origin: border;
-          subcontrol-position: top right;
-          width: 20px;
-          border-left: 1px solid #bbbbbb;
-          border-top-right-radius: 4px;
+
+        /* QComboBox can paint "current item" using HighlightedText on some themes.
+           If background is forced to white by QSS, text can become white-on-white.
+           Force readable text + selection colors for both non-editable and editable combos. */
+        QComboBox {
+          color: #000000;
+          selection-background-color: #007bff;
+          selection-color: #ffffff;
         }
-        QSpinBox::down-button, QDoubleSpinBox::down-button {
-          subcontrol-origin: border;
-          subcontrol-position: bottom right;
-          width: 20px;
-          border-left: 1px solid #bbbbbb;
-          border-bottom-right-radius: 4px;
+        QComboBox:on {
+          /* popup opened */
+          color: #000000;
         }
-        /* Draw arrows ourselves (black), so they are always visible */
-        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-          image: none;
-          width: 0px;
-          height: 0px;
-          border-left: 5px solid transparent;
-          border-right: 5px solid transparent;
-          border-bottom: 7px solid #000000;
-          margin: 3px;
+        QComboBox QLineEdit {
+          background: #ffffff;
+          color: #000000;
+          selection-background-color: #007bff;
+          selection-color: #ffffff;
         }
-        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-          image: none;
-          width: 0px;
-          height: 0px;
-          border-left: 5px solid transparent;
-          border-right: 5px solid transparent;
-          border-top: 7px solid #000000;
-          margin: 3px;
-        }
+
+        /* NOTE: We intentionally do NOT style QAbstractSpinBox/QSpinBox/QDateEdit/QTimeEdit via QSS.
+           On some Windows setups any QSS on these widgets makes the arrows disappear.
+           They will keep the native Fusion look (but palette still applies). */
 
         /* ComboBox popup list must stay readable on any OS theme */
         QComboBox QAbstractItemView {
@@ -147,12 +146,44 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           background: #9ec9f5;
           color: black;
           font: bold 12pt "Arial";
-          padding: 6px 14px;
+          padding: 10px 18px;
           margin-right: 4px;
           border-top-left-radius: 6px;
           border-top-right-radius: 6px;
+          border: 1px solid #bbbbbb;
         }
         QTabBar::tab:selected { background: #FF95A8; }
+
+        /* Calendar popup (QDateEdit): fix "black on black" on some Windows themes */
+        QCalendarWidget QWidget {
+          background: #ffffff;
+          color: #000000;
+        }
+        QCalendarWidget QToolButton {
+          background: #e9ecef;
+          color: #000000;
+          border: 1px solid #bbbbbb;
+          border-radius: 4px;
+          padding: 4px 8px;
+        }
+        QCalendarWidget QToolButton:hover {
+          border-color: #007bff;
+        }
+        QCalendarWidget QMenu {
+          background: #ffffff;
+          color: #000000;
+        }
+        QCalendarWidget QMenu::item:selected {
+          background: #007bff;
+          color: #ffffff;
+        }
+        QCalendarWidget QAbstractItemView {
+          background: #ffffff;
+          color: #000000;
+          selection-background-color: #007bff;
+          selection-color: #ffffff;
+          outline: 0;
+        }
         """
     )
 
@@ -163,6 +194,11 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         app._btn_autosize_filter = flt  # keep alive
         app.installEventFilter(flt)
 
+    if not hasattr(app, "_date_select_filter"):
+        dflt = _DateEditSelectDayFilter()
+        app._date_select_filter = dflt
+        app.installEventFilter(dflt)
+
 
 class _ButtonAutoSizeFilter(QtCore.QObject):
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
@@ -171,6 +207,9 @@ class _ButtonAutoSizeFilter(QtCore.QObject):
             if isinstance(obj, QtWidgets.QWidget):
                 # Do minimal work; only adjust buttons in this widget subtree.
                 for btn in obj.findChildren(QtWidgets.QAbstractButton):
+                    # allow opting out for constrained layouts
+                    if bool(btn.property("no_autosize")):
+                        continue
                     # icon-only buttons can stay small
                     txt = (btn.text() or "").strip()
                     if not txt or txt in ("↑", "↓", "←", "→", "+", "−"):
@@ -186,6 +225,12 @@ class _ButtonAutoSizeFilter(QtCore.QObject):
                         v.setMouseTracking(True)
                         if v.viewport() is not None:
                             v.viewport().setMouseTracking(True)
+                        # По ТЗ: длинные значения в выпадающих списках должны переноситься.
+                        if isinstance(v, QtWidgets.QListView):
+                            v.setWordWrap(True)
+                            v.setUniformItemSizes(False)
+                            v.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
+
                     except Exception:
                         pass
 
@@ -198,4 +243,21 @@ class _ButtonAutoSizeFilter(QtCore.QObject):
                                 w.setMinimumWidth(hint)
                         except Exception:
                             continue
+
         return super().eventFilter(obj, event)
+
+
+class _DateEditSelectDayFilter(QtCore.QObject):
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        try:
+            if isinstance(obj, QtWidgets.QDateEdit) and event.type() in (
+                QtCore.QEvent.Type.FocusIn,
+                QtCore.QEvent.Type.MouseButtonPress,
+            ):
+                obj.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                obj.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
+
