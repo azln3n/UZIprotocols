@@ -24,6 +24,39 @@ class Session:
     doctor_id: int
 
 
+ROLE_KIND = int(QtCore.Qt.ItemDataRole.UserRole)
+ROLE_PROTOCOL_SELECTED = int(QtCore.Qt.ItemDataRole.UserRole) + 10
+ROLE_PATIENT_SELECTED = int(QtCore.Qt.ItemDataRole.UserRole) + 11
+
+
+class _PatientProtocolDelegate(QtWidgets.QStyledItemDelegate):
+    def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionViewItem, index) -> None:
+        kind = index.data(ROLE_KIND)
+        is_patient = bool(kind and isinstance(kind, (list, tuple)) and kind[0] == "patient")
+        is_protocol = bool(kind and isinstance(kind, (list, tuple)) and kind[0] == "protocol")
+
+        if is_patient and bool(index.data(ROLE_PATIENT_SELECTED)):
+            painter.save()
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+            rect = option.rect.adjusted(1, 1, -1, -1)
+            painter.fillRect(rect, QtGui.QColor("#FF95A8"))
+            painter.restore()
+        elif is_protocol and bool(index.data(ROLE_PROTOCOL_SELECTED)):
+            painter.save()
+            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+            rect = option.rect.adjusted(1, 1, -1, -1)
+            painter.fillRect(rect, QtGui.QColor("#c6dbff"))
+            pen = QtGui.QPen(QtGui.QColor("#7dafff"))
+            pen.setWidth(1)
+            painter.setPen(pen)
+            painter.drawRoundedRect(rect, 6, 6)
+            painter.restore()
+
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
+        super().paint(painter, opt, index)
+
+
 class MainWindow(QtWidgets.QMainWindow):
     logout_requested = QtCore.Signal()
 
@@ -158,34 +191,21 @@ class MainWindow(QtWidgets.QMainWindow):
             QTreeWidget::item { outline: 0; }
             /* patients (top-level, has children indicator) */
             QTreeWidget::item:has-children {
-              background: #c6dbff;
               border: 1px solid #7dafff;
               border-radius: 6px;
               padding: 10px;
               margin-bottom: 2px;
             }
-            QTreeWidget::item:has-children:hover { background: #eef5ff; }
-            QTreeWidget::item:has-children:selected {
-              background: #FF95A8;
-              border: 1px solid transparent; /* без рамки вокруг текста */
-            }
             /* protocols (children) look like "button", highlight only on hover */
             QTreeWidget::item:!has-children {
-              background: transparent;
               border: 0px;
               border-radius: 6px;
               padding: 8px;
               margin-left: 22px;
             }
-            QTreeWidget::item:!has-children:hover { background: transparent; }
-            QTreeWidget::item:!has-children:selected {
-              background: #c6dbff;
-              border: 1px solid #7dafff;
-              border-radius: 6px;
-              color: black;
-            }
             """
         )
+        self.patient_tree.setItemDelegate(_PatientProtocolDelegate(self.patient_tree))
         patients_layout.addWidget(self.patient_tree, 1)
         left_layout.addWidget(patients_frame, 1)
 
@@ -234,7 +254,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.patient_tree.clearSelection()
                     self.patient_tree.setCurrentItem(None)
                     self._selected_patient_id = None
-                    self._clear_protocol_highlight()
+                    self._clear_protocol_selected()
                     self.protocol_area.set_patient(None)
                     self._apply_patient_item_styles()
                     self._refresh_buttons()
@@ -334,8 +354,6 @@ class MainWindow(QtWidgets.QMainWindow):
         Требование: выбранный пациент отображается жирным.
         Поиск/последний добавленный могут подсвечиваться фоном, но жирность остаётся только у выбранного.
         """
-        selected_bg = QtGui.QColor("#FF95A8")
-        selected_fg = QtGui.QColor("#000000")
         search_bg = QtGui.QColor("#c6dbff")
         search_fg = QtGui.QColor("#000000")
 
@@ -352,35 +370,40 @@ class MainWindow(QtWidgets.QMainWindow):
             it.setFont(0, f)
             it.setBackground(0, QtGui.QBrush())
             it.setForeground(0, QtGui.QBrush())
+            it.setData(0, ROLE_PATIENT_SELECTED, False)
 
             if self._selected_patient_id is not None and pid == int(self._selected_patient_id):
                 f2 = it.font(0)
                 f2.setBold(True)
                 it.setFont(0, f2)
-                it.setBackground(0, selected_bg)
-                it.setForeground(0, selected_fg)
+                it.setData(0, ROLE_PATIENT_SELECTED, True)
                 continue
 
             if pid in self._search_highlight_ids or (last_added_id is not None and pid == int(last_added_id)):
                 it.setBackground(0, search_bg)
                 it.setForeground(0, search_fg)
+        try:
+            self.patient_tree.viewport().update()
+        except Exception:
+            pass
 
-    def _clear_protocol_highlight(self) -> None:
-        it = self._selected_protocol_item
-        if not it:
+    def _clear_protocol_selected(self) -> None:
+        if self._selected_protocol_item is None:
             return
         try:
-            it.setBackground(0, QtGui.QBrush())
-            it.setForeground(0, QtGui.QBrush())
+            self._selected_protocol_item.setData(0, ROLE_PROTOCOL_SELECTED, False)
         except Exception:
             pass
         self._selected_protocol_item = None
 
-    def _set_protocol_highlight(self, item: QtWidgets.QTreeWidgetItem) -> None:
-        self._clear_protocol_highlight()
+    def _set_protocol_selected(self, item: QtWidgets.QTreeWidgetItem) -> None:
+        self._clear_protocol_selected()
         self._selected_protocol_item = item
-        item.setBackground(0, QtGui.QColor("#c6dbff"))
-        item.setForeground(0, QtGui.QColor("#000000"))
+        item.setData(0, ROLE_PROTOCOL_SELECTED, True)
+        try:
+            self.patient_tree.viewport().update()
+        except Exception:
+            pass
 
     def _select_patient_by_id(self, patient_id: int) -> QtWidgets.QTreeWidgetItem | None:
         for i in range(self.patient_tree.topLevelItemCount()):
@@ -400,7 +423,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if kind == "patient":
             pid = int(idv)
             self._selected_patient_id = pid
-            self._clear_protocol_highlight()
+            self._clear_protocol_selected()
             self.protocol_area.set_patient(pid)
             self._apply_patient_item_styles()
             self._refresh_buttons()
@@ -417,7 +440,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.information(self, "Протоколы", "Нет протокола")
                 # keep patient selected
                 self._selected_patient_id = pid
-                self._clear_protocol_highlight()
+                self._clear_protocol_selected()
                 self.protocol_area.set_patient(pid)
                 self._refresh_buttons()
             else:
@@ -427,9 +450,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._refresh_buttons()
                 self.protocol_area.open_saved_protocol(protocol_id=proto_id, study_type_id=st_id)
 
+            if proto_id > 0:
+                self._set_protocol_selected(item)
             self._apply_patient_item_styles()
-            self._set_protocol_highlight(item)
-            self.patient_tree.setCurrentItem(parent)
+            self.patient_tree.setCurrentItem(item)
             self.patient_tree.clearFocus()
             self.protocol_area.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
             return

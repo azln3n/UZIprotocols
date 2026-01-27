@@ -13,13 +13,21 @@ def project_root() -> Path:
 def ultrasound_dir() -> Path:
     """
     Папка данных приложения (БД, протоколы, шаблоны).
-    Важно: должна быть записываемой и не зависеть от репозитория/папки с exe.
+
+    По требованию: путь не "жёсткий", а берётся из .env и по умолчанию лежит в репозитории
+    рядом с main_qt.py.
+
+    .env:
+      UZI_DATA_DIR=UltrasoundProtocolSystem
+    - может быть абсолютным путём
+    - или относительным (тогда относительно project_root())
     """
-    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-    if base:
-        return Path(base) / "UltrasoundProtocolSystem"
-    # fallback (на случай нестандартной среды)
-    return project_root() / ".ultrasound_data"
+    cfg = (os.environ.get("UZI_DATA_DIR") or "").strip()
+    if cfg:
+        p = Path(cfg)
+        return (project_root() / p).resolve() if not p.is_absolute() else p
+    # default: inside repo
+    return project_root() / "UltrasoundProtocolSystem"
 
 
 def db_path() -> Path:

@@ -6,10 +6,11 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import date
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..repo import ComboItem, get_patient, list_admission_channels, upsert_patient
 from .admission_channels_dialog import AdmissionChannelsDialog
+from .auto_combo import AutoComboBox
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,8 @@ class PatientDialog(QtWidgets.QDialog):
         self.setModal(True)
 
         self._channel_items: list[ComboItem] = []
+        self._combo_popup_targets: set[QtWidgets.QComboBox] = set()
+        self._birth_editing = False
 
         self._build_ui()
         self._load_channels()
@@ -74,27 +77,54 @@ class PatientDialog(QtWidgets.QDialog):
 
     def _build_ui(self) -> None:
         self.setWindowTitle("Данные пациента")
-        self.resize(640, 520)
+        # По замечанию: окно должно быть компактнее, как в примере
+        self.resize(620, 360)
+        self.setMinimumWidth(620)
 
         root = QtWidgets.QVBoxLayout(self)
         root.setContentsMargins(18, 18, 18, 18)
         root.setSpacing(12)
 
+        self.error_label = QtWidgets.QLabel("")
+        self.error_label.setWordWrap(True)
+        self.error_label.setStyleSheet("color: #b00020;")
+
+        header = QtWidgets.QHBoxLayout()
         title = QtWidgets.QLabel(
             "Редактирование пациента" if self.patient_id else "Добавление нового пациента"
         )
         f = title.font()
-        f.setPointSize(13)
+        f.setPointSize(12)
         f.setBold(True)
         title.setFont(f)
-        root.addWidget(title)
+        header.addWidget(title)
+        header.addStretch(1)
+
+        self.channel_settings_btn = QtWidgets.QToolButton()
+        self.channel_settings_btn.setText("⚙")
+        self.channel_settings_btn.setToolTip("Настройки каналов поступления")
+        self.channel_settings_btn.clicked.connect(self._open_channel_settings)
+        self.channel_settings_btn.setFixedWidth(48)
+        self.channel_settings_btn.setMinimumHeight(32)
+        header.addWidget(self.channel_settings_btn)
+        root.addLayout(header)
 
         form = QtWidgets.QFormLayout()
-        form.setLabelAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
+        # Выравнивание/ровность: фиксируем правила для всех строк формы
+        form.setLabelAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.RowWrapPolicy.DontWrapRows)
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(10)
+        labels: list[QtWidgets.QLabel] = []
+
+        def _form_label(text: str) -> QtWidgets.QLabel:
+            lbl = self._bold_label(text)
+            labels.append(lbl)
+            return lbl
 
         # Date / time (UX only)
+        input_h = 30
         self.exam_date = QtWidgets.QDateEdit()
         self.exam_date.setCalendarPopup(True)
         self.exam_date.setDisplayFormat("dd.MM.yyyy")
@@ -105,78 +135,107 @@ class PatientDialog(QtWidgets.QDialog):
         self.exam_time.setTime(now.time())
 
         dt_row = QtWidgets.QHBoxLayout()
-        dt_row.addWidget(self.exam_date)
-        dt_row.addWidget(self.exam_time)
+        dt_row.setContentsMargins(0, 0, 0, 0)
+        dt_row.setSpacing(12)
+        self.exam_date.setMinimumWidth(180)
+        self.exam_time.setMinimumWidth(110)
+        self.exam_date.setMinimumHeight(input_h)
+        self.exam_time.setMinimumHeight(input_h)
+        dt_row.addWidget(self.exam_date, 1)
+        dt_row.addWidget(self.exam_time, 0)
         dt_container = QtWidgets.QWidget()
         dt_container.setLayout(dt_row)
-        form.addRow(self._bold_label("Дата и время:"), dt_container)
+        form.addRow(_form_label("Дата и время:"), dt_container)
 
         # FIO
         self.name_edit = QtWidgets.QLineEdit()
         self.name_edit.setPlaceholderText("Введите Ф.И.О. пациента")
+        self.name_edit.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.name_edit.setMinimumHeight(input_h)
         self.name_edit.textChanged.connect(self._refresh_save_state)
-        form.addRow(self._bold_label("Ф.И.О. пациента:"), self.name_edit)
+        form.addRow(_form_label("Ф.И.О. пациента:"), self.name_edit)
 
         # IIN
         self.iin_edit = QtWidgets.QLineEdit()
         self.iin_edit.setPlaceholderText("12 цифр")
         self.iin_edit.setMaxLength(12)
-        self.iin_edit.setInputMask("999999999999;_")
+        # Важно: НЕ используем inputMask — на Windows он даёт "квадратик" каретки и
+        # иногда сбрасывает позицию ввода в начало. Валидатор оставляет обычную каретку "|"
+        # и позволяет начинать ввод с места клика.
+        rx = QtCore.QRegularExpression(r"^\d{0,12}$")
+        self.iin_edit.setValidator(QtGui.QRegularExpressionValidator(rx, self.iin_edit))
+        self.iin_edit.setInputMethodHints(QtCore.Qt.InputMethodHint.ImhDigitsOnly)
+        self.iin_edit.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.iin_edit.setMinimumHeight(input_h)
         self.iin_edit.textChanged.connect(self._refresh_save_state)
-        form.addRow(self._bold_label("ИИН:"), self.iin_edit)
+        form.addRow(_form_label("ИИН:"), self.iin_edit)
 
-        # Birth date + age
+        # Birth date
         self.birth_date = QtWidgets.QDateEdit()
         self.birth_date.setCalendarPopup(True)
         self.birth_date.setDisplayFormat("dd.MM.yyyy")
-        self.birth_date.setMinimumWidth(220)
-        self.birth_date.setDate(QtCore.QDate(1990, 1, 1))
+        # По просьбе: дата рождения + возраст в одной строке, поля компактнее
+        self.birth_date.setMinimumWidth(130)
+        self.birth_date.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.birth_date.setMinimumHeight(input_h)
+        self._birth_min_date = QtCore.QDate(1900, 1, 1)
+        self.birth_date.setMinimumDate(self._birth_min_date)
+        self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
+        self.birth_date.setSpecialValueText("ДД.ММ.ГГГГ")
+        self.birth_date.setDate(self._birth_min_date)
         self.birth_date.dateChanged.connect(lambda _d: (self._refresh_age(), self._refresh_save_state()))
+        if self.birth_date.lineEdit():
+            rx_date = QtCore.QRegularExpression(r"^\d{0,2}\.\d{0,2}\.\d{0,4}$")
+            self.birth_date.lineEdit().setValidator(QtGui.QRegularExpressionValidator(rx_date, self))
+            self.birth_date.lineEdit().setPlaceholderText("ДД.ММ.ГГГГ")
+            self.birth_date.lineEdit().textEdited.connect(self._on_birth_text_edited)
+            self.birth_date.lineEdit().installEventFilter(self)
 
         self.age_edit = QtWidgets.QLineEdit()
         self.age_edit.setReadOnly(True)
-        # чтобы текст "36 лет, 0 мес, 16 дн" и т.п. не обрезался
-        self.age_edit.setMinimumWidth(260)
+        # компактнее и не шире остальных полей
+        self.age_edit.setMinimumWidth(0)
+        self.age_edit.setMinimumHeight(input_h)
         self.age_edit.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
         )
-
-        bd_row = QtWidgets.QHBoxLayout()
-        bd_row.addWidget(self.birth_date, 1)
-        bd_row.addSpacing(12)
-        bd_row.addWidget(self._bold_label("Возраст:"))
-        bd_row.addWidget(self.age_edit, 2)
-        bd_container = QtWidgets.QWidget()
-        bd_container.setLayout(bd_row)
-        form.addRow(self._bold_label("Дата рождения:"), bd_container)
+        birth_age_row = QtWidgets.QWidget()
+        bl = QtWidgets.QHBoxLayout(birth_age_row)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(12)
+        age_lbl = self._bold_label("Возраст:")
+        age_lbl.setMinimumWidth(age_lbl.sizeHint().width())
+        bl.addWidget(self.birth_date, 0)
+        bl.addWidget(age_lbl, 0)
+        bl.addWidget(self.age_edit, 1)
+        form.addRow(_form_label("Дата рождения:"), birth_age_row)
 
         # Gender
-        self.gender_combo = QtWidgets.QComboBox()
-        self.gender_combo.addItem("Выберите", "")
-        self.gender_combo.addItem("Мужской", "муж")
-        self.gender_combo.addItem("Женский", "жен")
+        self.gender_combo = AutoComboBox(max_popup_items=30)
+        self.gender_combo.addItem("муж.", "муж")
+        self.gender_combo.addItem("жен.", "жен")
+        self.gender_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.gender_combo.setMinimumHeight(input_h)
         self.gender_combo.currentIndexChanged.connect(self._refresh_save_state)
-        form.addRow(self._bold_label("Пол:"), self.gender_combo)
+        self._setup_combo_placeholder(self.gender_combo)
+        self._register_combo_popup(self.gender_combo)
+        form.addRow(_form_label("Пол:"), self.gender_combo)
 
         # Admission channel
-        self.channel_combo = QtWidgets.QComboBox()
+        self.channel_combo = AutoComboBox(max_popup_items=30)
+        self.channel_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.channel_combo.setMinimumHeight(input_h)
         self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
-        self.channel_settings_btn = QtWidgets.QToolButton()
-        self.channel_settings_btn.setText("⚙")
-        self.channel_settings_btn.setToolTip("Настройки каналов поступления")
-        self.channel_settings_btn.clicked.connect(self._open_channel_settings)
-        channel_row = QtWidgets.QHBoxLayout()
-        channel_row.addWidget(self.channel_combo, 1)
-        channel_row.addWidget(self.channel_settings_btn)
-        channel_container = QtWidgets.QWidget()
-        channel_container.setLayout(channel_row)
-        form.addRow(self._bold_label("Канал поступления:"), channel_container)
+        self._setup_combo_placeholder(self.channel_combo)
+        self._register_combo_popup(self.channel_combo)
+        form.addRow(_form_label("Канал поступления:"), self.channel_combo)
 
         root.addLayout(form)
+        if labels:
+            max_w = max(lbl.sizeHint().width() for lbl in labels)
+            for lbl in labels:
+                lbl.setMinimumWidth(max_w)
 
-        self.error_label = QtWidgets.QLabel("")
-        self.error_label.setWordWrap(True)
-        self.error_label.setStyleSheet("color: #b00020;")
         root.addWidget(self.error_label)
 
         btn_row = QtWidgets.QHBoxLayout()
@@ -214,9 +273,9 @@ class PatientDialog(QtWidgets.QDialog):
     def _load_channels(self) -> None:
         self._channel_items = list_admission_channels()
         self.channel_combo.clear()
-        self.channel_combo.addItem("Выберите", None)
         for item in self._channel_items:
             self.channel_combo.addItem(item.name, item.id)
+        self.channel_combo.setCurrentIndex(-1)
 
     @QtCore.Slot()
     def _open_channel_settings(self) -> None:
@@ -247,25 +306,73 @@ class PatientDialog(QtWidgets.QDialog):
                 self.birth_date.setDate(QtCore.QDate(y, m, d))
             except Exception:
                 pass
+        else:
+            self.birth_date.setDate(self._birth_min_date)
 
         gender = data.get("gender")
         if gender in ("муж", "жен"):
             idx = self.gender_combo.findData(gender)
             if idx >= 0:
                 self.gender_combo.setCurrentIndex(idx)
+        if gender not in ("муж", "жен"):
+            self.gender_combo.setCurrentIndex(-1)
 
         ac_id = data.get("admission_channel_id")
         if ac_id:
             idx = self.channel_combo.findData(int(ac_id))
             if idx >= 0:
                 self.channel_combo.setCurrentIndex(idx)
+        if not ac_id:
+            self.channel_combo.setCurrentIndex(-1)
 
         # Set current datetime (UX)
         now = QtCore.QDateTime.currentDateTime()
         self.exam_date.setDate(now.date())
         self.exam_time.setTime(now.time())
 
+    def _birth_date_is_set(self) -> bool:
+        qd = self.birth_date.date()
+        return bool(qd and qd > self._birth_min_date)
+
+    def _on_birth_text_edited(self, text: str) -> None:
+        if self._birth_editing:
+            return
+        digits = re.sub(r"\D", "", text or "")[:8]
+        if not digits:
+            return
+        day = digits[:2]
+        month = digits[2:4] if len(digits) > 2 else ""
+        year = digits[4:8] if len(digits) > 4 else ""
+        new_text = day
+        if len(digits) >= 2:
+            new_text += "."
+        if month:
+            new_text += month
+        if len(digits) >= 4:
+            new_text += "."
+        if year:
+            new_text += year
+        self._birth_editing = True
+        try:
+            le = self.birth_date.lineEdit()
+            if le is not None:
+                le.setText(new_text)
+                le.setCursorPosition(len(new_text))
+        finally:
+            self._birth_editing = False
+
+        if len(digits) == 8:
+            day = int(digits[:2])
+            month = int(digits[2:4])
+            year = int(digits[4:8])
+            qd = QtCore.QDate(year, month, day)
+            if qd.isValid() and qd <= QtCore.QDate.currentDate():
+                self.birth_date.setDate(qd)
+
     def _refresh_age(self) -> None:
+        if not self._birth_date_is_set():
+            self.age_edit.setText("")
+            return
         qd = self.birth_date.date()
         birth = date(qd.year(), qd.month(), qd.day())
         today = date.today()
@@ -283,9 +390,9 @@ class PatientDialog(QtWidgets.QDialog):
         self.error_label.setText("")
         self.name_edit.clear()
         self.iin_edit.clear()
-        self.birth_date.setDate(QtCore.QDate(1990, 1, 1))
-        self.gender_combo.setCurrentIndex(0)
-        self.channel_combo.setCurrentIndex(0)
+        self.birth_date.setDate(self._birth_min_date)
+        self.gender_combo.setCurrentIndex(-1)
+        self.channel_combo.setCurrentIndex(-1)
 
         now = QtCore.QDateTime.currentDateTime()
         self.exam_date.setDate(now.date())
@@ -295,6 +402,8 @@ class PatientDialog(QtWidgets.QDialog):
         self._refresh_save_state()
 
     def _refresh_save_state(self) -> None:
+        if not hasattr(self, "save_btn"):
+            return
         self.error_label.setText("")
         can = True
 
@@ -306,18 +415,56 @@ class PatientDialog(QtWidgets.QDialog):
         if gender not in ("муж", "жен"):
             can = False
 
-        # Age must not be empty and must not be error text
+        if not self._birth_date_is_set():
+            can = False
         age = self.age_edit.text().strip()
-        if not age or age in ("Дата в будущем", "Некорректная дата"):
+        if age in ("Дата в будущем", "Некорректная дата"):
             can = False
 
-        # IIN: allow empty, else 12 digits
+        # IIN: по ТЗ строго 12 цифр (обязательное поле)
         iin_raw = self.iin_edit.text()
         iin_digits = re.sub(r"\D", "", iin_raw)
-        if iin_digits and len(iin_digits) != 12:
+        if len(iin_digits) != 12:
             can = False
 
         self.save_btn.setEnabled(can)
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        if self.birth_date.lineEdit() is obj:
+            if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+                try:
+                    self.birth_date.lineEdit().selectAll()
+                except Exception:
+                    pass
+                return True
+            if event.type() == QtCore.QEvent.Type.FocusIn:
+                try:
+                    self.birth_date.lineEdit().selectAll()
+                except Exception:
+                    pass
+        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+            for combo in self._combo_popup_targets:
+                if combo.lineEdit() is obj:
+                    combo.showPopup()
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _setup_combo_placeholder(self, combo: QtWidgets.QComboBox) -> None:
+        combo.setEditable(True)
+        combo.lineEdit().setReadOnly(True)
+        combo.lineEdit().setPlaceholderText("Выберите")
+        pal = combo.palette()
+        pal.setColor(QtGui.QPalette.ColorRole.PlaceholderText, QtGui.QColor("#9aa0a6"))
+        combo.setPalette(pal)
+        combo.setCurrentIndex(-1)
+
+    def _register_combo_popup(self, combo: QtWidgets.QComboBox) -> None:
+        le = combo.lineEdit()
+        if le is None:
+            return
+        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        le.installEventFilter(self)
+        self._combo_popup_targets.add(combo)
 
     @QtCore.Slot()
     def _save(self) -> None:
@@ -335,16 +482,18 @@ class PatientDialog(QtWidgets.QDialog):
             self.gender_combo.setFocus()
             return
 
+        if not self._birth_date_is_set():
+            self.error_label.setText("Укажите дату рождения пациента.")
+            self.birth_date.setFocus()
+            return
+
         iin_digits = re.sub(r"\D", "", self.iin_edit.text())
         iin: str | None
-        if iin_digits:
-            if len(iin_digits) != 12:
-                self.error_label.setText("ИИН должен содержать ровно 12 цифр.")
-                self.iin_edit.setFocus()
-                return
-            iin = iin_digits
-        else:
-            iin = None
+        if len(iin_digits) != 12:
+            self.error_label.setText("ИИН должен содержать ровно 12 цифр.")
+            self.iin_edit.setFocus()
+            return
+        iin = iin_digits
 
         qd = self.birth_date.date()
         birth = date(qd.year(), qd.month(), qd.day())

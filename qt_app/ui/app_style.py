@@ -70,19 +70,6 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           padding: 5px 7px;
         }
 
-        /* Spin/date/time inputs (keep arrows, but add consistent gray frame) */
-        QAbstractSpinBox {
-          background: white;
-          color: #000000;
-          border: 1px solid #bbbbbb;
-          border-radius: 4px;
-          padding: 6px 8px;
-        }
-        QAbstractSpinBox:hover, QAbstractSpinBox:focus {
-          border: 2px solid #007bff;
-          padding: 5px 7px;
-        }
-
         /* QComboBox can paint "current item" using HighlightedText on some themes.
            If background is forced to white by QSS, text can become white-on-white.
            Force readable text + selection colors for both non-editable and editable combos. */
@@ -103,8 +90,8 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         }
 
         /* NOTE: We intentionally do NOT style QAbstractSpinBox/QSpinBox/QDateEdit/QTimeEdit via QSS.
-           On some Windows setups any QSS on these widgets makes the arrows disappear.
-           They will keep the native Fusion look (but palette still applies). */
+           On some Windows setups any QSS on these widgets makes the arrows/icons disappear.
+           They will keep the native Fusion look (palette still applies). */
 
         /* ComboBox popup list must stay readable on any OS theme */
         QComboBox QAbstractItemView {
@@ -121,6 +108,11 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         QComboBox QAbstractItemView::item:selected {
           background: #007bff;
           color: #ffffff;
+        }
+
+        /* Optional: add comfortable padding inside popup items for specific comboboxes */
+        QComboBox[padded_popup="true"] QAbstractItemView::item {
+          padding: 6px 12px;
         }
 
         /* Lists / tables also get focus border per "любой поле" wording */

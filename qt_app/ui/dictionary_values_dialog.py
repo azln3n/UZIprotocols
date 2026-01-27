@@ -54,12 +54,17 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
         root.addLayout(btns)
 
         self.table = QtWidgets.QTableWidget(0, 2)
+        table_font = self.table.font()
+        table_font.setPointSize(11)
+        self.table.setFont(table_font)
         self.table.setHorizontalHeaderLabels(["Порядок", "Значение"])
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setWordWrap(True)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setDefaultSectionSize(28)
         root.addWidget(self.table, 1)
 
         footer = QtWidgets.QHBoxLayout()
@@ -83,6 +88,7 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
             it = QtWidgets.QTableWidgetItem(v.value)
             it.setData(QtCore.Qt.ItemDataRole.UserRole, v.id)
             self.table.setItem(r, 1, it)
+        self.table.resizeRowsToContents()
 
     def _current_value(self) -> DictionaryValueRow | None:
         row = self.table.currentRow()
@@ -94,11 +100,36 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
         vid = int(it.data(QtCore.Qt.ItemDataRole.UserRole))
         return next((x for x in self._values if x.id == vid), None)
 
+    def _ask_value(self, *, title: str, default: str = "") -> str | None:
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(520)
+        dlg.setMinimumHeight(220)
+        layout = QtWidgets.QVBoxLayout(dlg)
+
+        form = QtWidgets.QFormLayout()
+        edit = QtWidgets.QPlainTextEdit()
+        edit.setPlainText(default)
+        edit.setMinimumHeight(90)
+        form.addRow("Значение:", edit)
+        layout.addLayout(form)
+
+        btns = QtWidgets.QHBoxLayout()
+        btns.addStretch(1)
+        ok = QtWidgets.QPushButton("OK")
+        cancel = QtWidgets.QPushButton("Отмена")
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        layout.addLayout(btns)
+
+        if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return None
+        return edit.toPlainText().strip() or None
+
     def _add(self) -> None:
-        text, ok = QtWidgets.QInputDialog.getText(self, "Добавить", "Значение:")
-        if not ok:
-            return
-        val = str(text).strip()
+        val = self._ask_value(title="Добавить значение")
         if not val:
             return
         create_dictionary_value(self.field_id, val)
@@ -109,10 +140,7 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
         cur = self._current_value()
         if not cur:
             return
-        text, ok = QtWidgets.QInputDialog.getText(self, "Изменить", "Значение:", text=cur.value)
-        if not ok:
-            return
-        val = str(text).strip()
+        val = self._ask_value(title="Изменить значение", default=cur.value)
         if not val:
             return
         update_dictionary_value(cur.id, val)

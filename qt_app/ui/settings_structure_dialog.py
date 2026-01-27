@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6 import QtCore, QtWidgets
 
 from ..repo import (
@@ -27,8 +29,11 @@ from ..repo import (
     update_tab,
     update_group,
     update_field,
+    get_study_template_variant,
+    upsert_study_template_variant,
 )
 from .dictionary_values_dialog import DictionaryValuesDialog
+from .auto_combo import AutoComboBox
 
 
 class SettingsStructureDialog(QtWidgets.QDialog):
@@ -39,6 +44,8 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self.setWindowTitle("Настройки — структура протокола")
         self.resize(980, 620)
         self.setModal(True)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowMaximizeButtonHint, True)
+        self.setSizeGripEnabled(True)
 
         self._study_types: list[StudyTypeRow] = []
         self._tabs: list[TabRow] = []
@@ -58,7 +65,8 @@ class SettingsStructureDialog(QtWidgets.QDialog):
 
         # ===== Left: studies =====
         left = QtWidgets.QWidget()
-        left.setMinimumWidth(320)
+        # По просьбе: блок слева не должен быть слишком узким (иначе кнопки шаблонов наезжают)
+        left.setMinimumWidth(460)
         ll = QtWidgets.QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(10)
@@ -70,9 +78,7 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         title.setFont(f)
         ll.addWidget(title)
 
-        # Buttons (2 rows): top = add/edit, bottom = delete + arrows
-        btns = QtWidgets.QVBoxLayout()
-        btns.setSpacing(6)
+        # Buttons (1 row): add/edit/delete + arrows
         self.add_study_btn = QtWidgets.QPushButton("Добавить")
         self.edit_study_btn = QtWidgets.QPushButton("Изменить")
         self.del_study_btn = QtWidgets.QPushButton("Удалить")
@@ -85,27 +91,75 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self.up_study_btn.clicked.connect(lambda: self._move_study(-1))
         self.down_study_btn.clicked.connect(lambda: self._move_study(+1))
 
-        row1 = QtWidgets.QHBoxLayout()
-        row1.setSpacing(10)
-        row1.addWidget(self.add_study_btn)
-        row1.addWidget(self.edit_study_btn)
-        self._equalize_buttons([self.add_study_btn, self.edit_study_btn])
-        row1.addStretch(1)
-
-        row2 = QtWidgets.QHBoxLayout()
-        row2.setSpacing(10)
-        row2.addWidget(self.del_study_btn)
-        row2.addWidget(self.up_study_btn)
-        row2.addWidget(self.down_study_btn)
-        row2.addStretch(1)
-
-        btns.addLayout(row1)
-        btns.addLayout(row2)
-        ll.addLayout(btns)
+        row = QtWidgets.QHBoxLayout()
+        row.setSpacing(10)
+        row.addWidget(self.add_study_btn)
+        row.addWidget(self.edit_study_btn)
+        row.addWidget(self.del_study_btn)
+        self._equalize_buttons([self.add_study_btn, self.edit_study_btn, self.del_study_btn])
+        row.addWidget(self.up_study_btn)
+        row.addWidget(self.down_study_btn)
+        row.addStretch(1)
+        ll.addLayout(row)
 
         self.study_list = QtWidgets.QListWidget()
+        list_font = self.study_list.font()
+        list_font.setPointSize(11)
+        self.study_list.setFont(list_font)
+        self.study_list.setSpacing(4)
         self.study_list.itemSelectionChanged.connect(self._on_study_selected)
         ll.addWidget(self.study_list, 1)
+
+        # Templates for study type (online/hand) — stored in study_template_variants (unsigned/signed)
+        tmpl_box = QtWidgets.QGroupBox("Шаблоны HTML (для печати)")
+        tmpl_box.setMinimumHeight(170)
+        tl = QtWidgets.QVBoxLayout(tmpl_box)
+        tl.setContentsMargins(10, 10, 10, 10)
+        tl.setSpacing(8)
+
+        self.tmpl_online_label = QtWidgets.QLabel("Онлайн (без подписи): не задан")
+        self.tmpl_hand_label = QtWidgets.QLabel("На руки (с подписью): не задан")
+        self.tmpl_online_label.setWordWrap(True)
+        self.tmpl_hand_label.setWordWrap(True)
+        tl.addWidget(self.tmpl_online_label)
+        tl.addWidget(self.tmpl_hand_label)
+
+        # Кнопки шаблонов: делаем сеткой, чтобы не "плыли" на узкой панели
+        grid_btns = QtWidgets.QGridLayout()
+        grid_btns.setHorizontalSpacing(8)
+        grid_btns.setVerticalSpacing(6)
+        self.pick_online_btn = QtWidgets.QPushButton("Выбрать онлайн…")
+        self.pick_hand_btn = QtWidgets.QPushButton("Выбрать на руки…")
+        self.clear_online_btn = QtWidgets.QPushButton("Сбросить онлайн")
+        self.clear_hand_btn = QtWidgets.QPushButton("Сбросить на руки")
+        self.export_online_btn = QtWidgets.QPushButton("Экспорт онлайн…")
+        self.export_hand_btn = QtWidgets.QPushButton("Экспорт на руки…")
+        for b in (
+            self.pick_online_btn,
+            self.pick_hand_btn,
+            self.clear_online_btn,
+            self.clear_hand_btn,
+            self.export_online_btn,
+            self.export_hand_btn,
+        ):
+            b.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
+            # Не даём глобальному авто-расширению ломать сетку (иначе кнопки могут наезжать)
+            b.setProperty("no_autosize", True)
+        self.pick_online_btn.clicked.connect(lambda: self._pick_template_variant("unsigned"))
+        self.pick_hand_btn.clicked.connect(lambda: self._pick_template_variant("signed"))
+        self.clear_online_btn.clicked.connect(lambda: self._clear_template_variant("unsigned"))
+        self.clear_hand_btn.clicked.connect(lambda: self._clear_template_variant("signed"))
+        self.export_online_btn.clicked.connect(lambda: self._export_template_variant("unsigned"))
+        self.export_hand_btn.clicked.connect(lambda: self._export_template_variant("signed"))
+        grid_btns.addWidget(self.pick_online_btn, 0, 0)
+        grid_btns.addWidget(self.pick_hand_btn, 0, 1)
+        grid_btns.addWidget(self.clear_online_btn, 1, 0)
+        grid_btns.addWidget(self.clear_hand_btn, 1, 1)
+        grid_btns.addWidget(self.export_online_btn, 2, 0)
+        grid_btns.addWidget(self.export_hand_btn, 2, 1)
+        tl.addLayout(grid_btns)
+
+        ll.addWidget(tmpl_box)
 
         root.addWidget(left, 0)
 
@@ -140,18 +194,22 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         tab_btns.addWidget(self.edit_tab_btn)
         tab_btns.addWidget(self.del_tab_btn)
         self._equalize_buttons([self.add_tab_btn, self.edit_tab_btn, self.del_tab_btn])
-        tab_btns.addStretch(1)
         tab_btns.addWidget(self.left_tab_btn)
         tab_btns.addWidget(self.right_tab_btn)
+        tab_btns.addStretch(1)
         rl.addLayout(tab_btns)
 
         self.tabs_table = QtWidgets.QTableWidget(0, 2)
+        tabs_font = self.tabs_table.font()
+        tabs_font.setPointSize(11)
+        self.tabs_table.setFont(tabs_font)
         self.tabs_table.setHorizontalHeaderLabels(["Порядок", "Название"])
         self.tabs_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.tabs_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tabs_table.horizontalHeader().setStretchLastSection(True)
         self.tabs_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.tabs_table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.tabs_table.verticalHeader().setDefaultSectionSize(28)
         self.tabs_table.itemSelectionChanged.connect(self._on_tab_selected)
 
         groups_widget = QtWidgets.QWidget()
@@ -179,12 +237,15 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         g_btns.addWidget(self.edit_group_btn)
         g_btns.addWidget(self.del_group_btn)
         self._equalize_buttons([self.add_group_btn, self.edit_group_btn, self.del_group_btn])
-        g_btns.addStretch(1)
         g_btns.addWidget(self.up_group_btn)
         g_btns.addWidget(self.down_group_btn)
+        g_btns.addStretch(1)
         gl.addLayout(g_btns)
 
         self.groups_table = QtWidgets.QTableWidget(0, 3)
+        groups_font = self.groups_table.font()
+        groups_font.setPointSize(11)
+        self.groups_table.setFont(groups_font)
         self.groups_table.setHorizontalHeaderLabels(["Порядок", "Название", "По умолч. раскрыта"])
         self.groups_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.groups_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -192,6 +253,7 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self.groups_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.groups_table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.groups_table.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        self.groups_table.verticalHeader().setDefaultSectionSize(28)
         self.groups_table.itemSelectionChanged.connect(self._on_group_selected)
         gl.addWidget(self.groups_table, 1)
 
@@ -223,12 +285,15 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         f_btns.addWidget(self.del_field_btn)
         f_btns.addWidget(self.values_btn)
         self._equalize_buttons([self.add_field_btn, self.edit_field_btn, self.del_field_btn, self.values_btn])
-        f_btns.addStretch(1)
         f_btns.addWidget(self.up_field_btn)
         f_btns.addWidget(self.down_field_btn)
+        f_btns.addStretch(1)
         fl.addLayout(f_btns)
 
         self.fields_table = QtWidgets.QTableWidget(0, 7)
+        fields_font = self.fields_table.font()
+        fields_font.setPointSize(11)
+        self.fields_table.setFont(fields_font)
         self.fields_table.setHorizontalHeaderLabels(["Кол", "Порядок", "Название", "Тег", "Тип", "Req", "Hidden"])
         self.fields_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.fields_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -240,6 +305,7 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self.fields_table.horizontalHeader().setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.fields_table.horizontalHeader().setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.fields_table.horizontalHeader().setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        self.fields_table.verticalHeader().setDefaultSectionSize(28)
         fl.addWidget(self.fields_table, 1)
         # Важно: иначе кнопки "Изменить/Удалить/Значения" не активируются при выборе поля.
         self.fields_table.itemSelectionChanged.connect(self._on_field_selected)
@@ -252,26 +318,112 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         main_splitter.addWidget(groups_widget)
         main_splitter.addWidget(fields_widget)
         # tabs smaller, groups larger, fields medium
-        main_splitter.setSizes([180, 280, 220])
+        main_splitter.setSizes([140, 260, 360])
         main_splitter.setStretchFactor(0, 1)
         main_splitter.setStretchFactor(1, 2)
-        main_splitter.setStretchFactor(2, 1)
+        main_splitter.setStretchFactor(2, 2)
         rl.addWidget(main_splitter, 1)
-
-        footer = QtWidgets.QHBoxLayout()
-        footer.addStretch(1)
-        close_btn = QtWidgets.QPushButton("Закрыть")
-        close_btn.setStyleSheet(
-            "QPushButton { background: #e9ecef; color: black; border: 2px solid #9aa0a6; border-radius: 6px; padding: 6px 18px; }"
-            "QPushButton:hover, QPushButton:focus { border-color: #007bff; }"
-        )
-        close_btn.clicked.connect(self.accept)
-        footer.addWidget(close_btn)
-        rl.addLayout(footer)
 
         root.addWidget(right, 1)
 
         self._refresh_buttons()
+
+    def _refresh_templates_ui(self) -> None:
+        st = self._current_study()
+        st_id = st.id if st else None
+        enabled = bool(st_id)
+        self.pick_online_btn.setEnabled(enabled)
+        self.pick_hand_btn.setEnabled(enabled)
+        self.clear_online_btn.setEnabled(enabled)
+        self.clear_hand_btn.setEnabled(enabled)
+        self.export_online_btn.setEnabled(enabled)
+        self.export_hand_btn.setEnabled(enabled)
+
+        if not st_id:
+            self.tmpl_online_label.setText("Онлайн (без подписи): —")
+            self.tmpl_hand_label.setText("На руки (с подписью): —")
+            return
+
+        online = get_study_template_variant(int(st_id), "unsigned")
+        hand = get_study_template_variant(int(st_id), "signed")
+        self.tmpl_online_label.setText("Онлайн (без подписи): " + ("задан" if online else "не задан"))
+        self.tmpl_hand_label.setText("На руки (с подписью): " + ("задан" if hand else "не задан"))
+
+    def _pick_template_variant(self, variant: str) -> None:
+        st = self._current_study()
+        if not st:
+            return
+        file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Выберите HTML шаблон",
+            "",
+            "HTML файлы (*.htm *.html);;Все файлы (*.*)",
+        )
+        if not file_path:
+            return
+        try:
+            content = QtCore.QFile(file_path)
+            if not content.open(QtCore.QIODevice.OpenModeFlag.ReadOnly):
+                raise OSError("Не удалось открыть файл")
+            raw = bytes(content.readAll())
+            content.close()
+            text = raw.decode("utf-8", errors="replace")
+            upsert_study_template_variant(
+                study_type_id=int(st.id),
+                variant=str(variant),
+                template_name=Path(file_path).name,
+                template_content=text,
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить шаблон: {e}")
+            return
+        self._refresh_templates_ui()
+        self.changed.emit()
+
+    def _clear_template_variant(self, variant: str) -> None:
+        st = self._current_study()
+        if not st:
+            return
+        if (
+            QtWidgets.QMessageBox.question(self, "Сбросить", "Сбросить шаблон для выбранного варианта?")
+            != QtWidgets.QMessageBox.StandardButton.Yes
+        ):
+            return
+        try:
+            upsert_study_template_variant(
+                study_type_id=int(st.id),
+                variant=str(variant),
+                template_name=None,
+                template_content="",
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось сбросить: {e}")
+            return
+        self._refresh_templates_ui()
+        self.changed.emit()
+
+    def _export_template_variant(self, variant: str) -> None:
+        st = self._current_study()
+        if not st:
+            return
+        content = get_study_template_variant(int(st.id), str(variant))
+        if not content:
+            QtWidgets.QMessageBox.information(self, "Экспорт", "Шаблон не задан — экспортировать нечего.")
+            return
+        suffix = "онлайн" if str(variant) == "unsigned" else "на_руки"
+        file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Экспорт шаблона",
+            f"{st.name}_{suffix}.html",
+            "HTML файлы (*.htm *.html);;Все файлы (*.*)",
+        )
+        if not file_path:
+            return
+        try:
+            Path(file_path).write_text(content, encoding="utf-8", errors="replace")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось экспортировать: {e}")
+            return
 
     @QtCore.Slot()
     def _on_field_selected(self) -> None:
@@ -322,15 +474,20 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self._current_group_id = None
         self._reload_groups()
         self._reload_fields()
+        self._refresh_templates_ui()
         self._refresh_buttons()
 
     def _ask_study_dialog(self, *, title: str, default_name: str = "", default_active: bool = True) -> tuple[str, bool] | None:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(520)
+        dlg.setMinimumHeight(120)
+        dlg.resize(520, 120)
         layout = QtWidgets.QVBoxLayout(dlg)
 
         form = QtWidgets.QFormLayout()
         name = QtWidgets.QLineEdit(default_name)
+        name.setMinimumHeight(28)
         active = QtWidgets.QCheckBox("Активный")
         active.setChecked(default_active)
         form.addRow("Название:", name)
@@ -445,11 +602,32 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         return int(item.data(QtCore.Qt.ItemDataRole.UserRole))
 
     def _ask_tab_name(self, *, title: str, default: str = "") -> str | None:
-        text, ok = QtWidgets.QInputDialog.getText(self, title, "Название вкладки:", text=default)
-        if not ok:
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(520)
+        dlg.setMinimumHeight(120)
+        layout = QtWidgets.QVBoxLayout(dlg)
+
+        form = QtWidgets.QFormLayout()
+        name = QtWidgets.QLineEdit(default)
+        name.setMinimumHeight(28)
+        form.addRow("Название вкладки:", name)
+        layout.addLayout(form)
+
+        btns = QtWidgets.QHBoxLayout()
+        btns.addStretch(1)
+        ok = QtWidgets.QPushButton("OK")
+        cancel = QtWidgets.QPushButton("Отмена")
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        layout.addLayout(btns)
+
+        if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return None
-        name = str(text).strip()
-        return name or None
+        value = name.text().strip()
+        return value or None
 
     def _add_tab(self) -> None:
         st_id = self._current_study_type_id
@@ -539,7 +717,7 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self.del_field_btn.setEnabled(has_field)
         self.up_field_btn.setEnabled(has_field)
         self.down_field_btn.setEnabled(has_field)
-        # значения доступны для словарь/шаблон
+        # значения доступны для "словарь" и "шаблон" (по ТЗ: оба редактируемые списки)
         f = self._current_field()
         self.values_btn.setEnabled(bool(f and f.field_type in ("словарь", "шаблон")))
 
@@ -578,9 +756,12 @@ class SettingsStructureDialog(QtWidgets.QDialog):
     def _ask_group(self, *, title: str, default_name: str = "", default_expanded: bool = False) -> tuple[str, bool] | None:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(520)
+        dlg.setMinimumHeight(120)
         layout = QtWidgets.QVBoxLayout(dlg)
         form = QtWidgets.QFormLayout()
         name = QtWidgets.QLineEdit(default_name)
+        name.setMinimumHeight(28)
         expanded = QtWidgets.QCheckBox("Раскрыта по умолчанию")
         expanded.setChecked(default_expanded)
         form.addRow("Название:", name)
@@ -702,27 +883,29 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         name = QtWidgets.QLineEdit(existing.name if existing else "")
         template_tag = QtWidgets.QLineEdit((existing.template_tag or "") if existing else "")
         template_tag.setPlaceholderText("например: MZhPd__mm_lz (без @)")
-        ftype = QtWidgets.QComboBox()
+        ftype = AutoComboBox(max_popup_items=30)
+        # Лёгкий визуальный отступ в выпадающем списке (иначе пункты "прилипают" к краю).
+        ftype.setProperty("padded_popup", True)
+        # По ТЗ: есть и "словарь" (одиночный выбор), и "шаблон" (множественный выбор).
         ftype.addItems(["строка", "текст", "число", "дата", "время", "словарь", "шаблон", "скрытое", "формула"])
         if existing:
             idx = ftype.findText(existing.field_type)
             if idx >= 0:
                 ftype.setCurrentIndex(idx)
-        col = QtWidgets.QSpinBox()
-        col.setRange(1, 3)
-        col.setValue(existing.column_num if existing else 1)
+        col = QtWidgets.QComboBox()
+        col.addItem("Сплошная", 1)
+        col.addItem("Левая колонка", 2)
+        col.addItem("Правая колонка", 3)
+        if existing:
+            idx = col.findData(int(existing.column_num))
+            if idx >= 0:
+                col.setCurrentIndex(idx)
         precision = QtWidgets.QSpinBox()
         precision.setRange(0, 6)
         precision.setValue(existing.precision if (existing and existing.precision is not None) else 0)
         precision.setEnabled(bool(existing and existing.field_type in ("число", "формула")) or False)
         required = QtWidgets.QCheckBox()
         required.setChecked(existing.is_required if existing else False)
-        height = QtWidgets.QSpinBox()
-        height.setRange(1, 10)
-        height.setValue(existing.height if existing else 1)
-        width = QtWidgets.QSpinBox()
-        width.setRange(10, 200)
-        width.setValue(existing.width if existing else 20)
 
         formula = QtWidgets.QPlainTextEdit(existing.formula or "" if existing else "")
         formula.setMinimumHeight(70)
@@ -740,10 +923,11 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         hidden.setChecked(existing.is_hidden if existing else False)
 
         # trigger field: only dictionary fields in this group
-        trigger_field = QtWidgets.QComboBox()
+        trigger_field = AutoComboBox(max_popup_items=30)
         trigger_field.addItem("—", None)
         for f in self._fields:
-            if f.field_type == "словарь":
+            # По ТЗ: скрытие может зависеть от "первого значения из списка", логично разрешить и словарь, и шаблон.
+            if f.field_type in ("словарь", "шаблон"):
                 trigger_field.addItem(f.name, f.id)
         if existing and existing.hidden_trigger_field_id:
             idx = trigger_field.findData(existing.hidden_trigger_field_id)
@@ -757,8 +941,6 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         form.addRow("Колонка:", col)
         form.addRow("Обязательное:", required)
         form.addRow("Точность (число/формула):", precision)
-        form.addRow("Высота:", height)
-        form.addRow("Ширина:", width)
         form.addRow("Формула:", formula)
         form.addRow("Ref муж min/max:", self._hpair(rm_min, rm_max))
         form.addRow("Ref жен min/max:", self._hpair(rf_min, rf_max))
@@ -771,8 +953,8 @@ class SettingsStructureDialog(QtWidgets.QDialog):
             t = ftype.currentText()
             precision.setEnabled(t in ("число", "формула"))
             formula.setEnabled(t == "формула")
-            # По просьбе: "тег" нужен именно когда выбирают тип "шаблон"
-            template_tag.setEnabled(t == "шаблон")
+            # По просьбе: тег нужен всегда
+            template_tag.setEnabled(True)
         ftype.currentIndexChanged.connect(on_type_changed)
         on_type_changed()
 
@@ -792,19 +974,18 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         if not n:
             return None
 
-        # tag: allow empty; if user typed '@' -> strip; validate only for 'шаблон'
+        # tag: обязателен; если пользователь ввёл '@' -> убираем
         t = ftype.currentText()
         tag = template_tag.text().strip()
         if tag.startswith("@"):
             tag = tag[1:].strip()
-        if t == "шаблон":
-            if not tag:
-                QtWidgets.QMessageBox.warning(dlg, "Внимание", "Для типа «шаблон» нужно указать тег (например: MZhPd__mm_lz).")
-                return None
-            # \w in Qt = [A-Za-z0-9_] (+ unicode letters). Нам нужно минимум: буквы/цифры/_.
-            if not QtCore.QRegularExpression(r"^\w+$").match(tag).hasMatch():
-                QtWidgets.QMessageBox.warning(dlg, "Внимание", "Тег может содержать только буквы/цифры и знак подчёркивания (_).")
-                return None
+        if not tag:
+            QtWidgets.QMessageBox.warning(dlg, "Внимание", "Нужно указать тег для шаблона (например: MZhPd__mm_lz).")
+            return None
+        # \w in Qt = [A-Za-z0-9_] (+ unicode letters). Нам нужно минимум: буквы/цифры/_.
+        if not QtCore.QRegularExpression(r"^\w+$").match(tag).hasMatch():
+            QtWidgets.QMessageBox.warning(dlg, "Внимание", "Тег может содержать только буквы/цифры и знак подчёркивания (_).")
+            return None
 
         def _parse_float(s: str) -> float | None:
             s = s.strip().replace(",", ".")
@@ -817,9 +998,9 @@ class SettingsStructureDialog(QtWidgets.QDialog):
 
         return {
             "name": n,
-            "template_tag": tag or None,
+            "template_tag": tag,
             "field_type": t,
-            "column_num": int(col.value()),
+            "column_num": int(col.currentData() or 1),
             "precision": int(precision.value()) if t in ("число", "формула") else None,
             "reference_male_min": _parse_float(rm_min.text()),
             "reference_male_max": _parse_float(rm_max.text()),
@@ -827,8 +1008,8 @@ class SettingsStructureDialog(QtWidgets.QDialog):
             "reference_female_max": _parse_float(rf_max.text()),
             "formula": formula.toPlainText().strip() if t == "формула" else None,
             "is_required": bool(required.isChecked()),
-            "height": int(height.value()),
-            "width": int(width.value()),
+            "height": int(existing.height if existing else 1),
+            "width": int(existing.width if existing else 20),
             "is_hidden": bool(hidden.isChecked()),
             "hidden_trigger_field_id": trigger_field.currentData(),
             "hidden_trigger_value": trigger_value.text().strip() or None,

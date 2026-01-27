@@ -4,15 +4,15 @@ from dataclasses import dataclass
 
 from PySide6 import QtCore, QtWidgets
 
-from ..repo import ComboItem, list_devices, list_doctors, list_institutions
+from ..repo import ComboItem, list_doctors, list_institutions
 from .settings_system_dialog import SettingsSystemDialog
+from .auto_combo import AutoComboBox
 
 
 @dataclass(frozen=True)
 class LoginResult:
     institution_id: int
     doctor_id: int
-    device_id: int
 
 
 class LoginDialog(QtWidgets.QDialog):
@@ -22,13 +22,15 @@ class LoginDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.setWindowTitle("УЗИ-протоколирование — Вход")
         self.setModal(True)
+        # По замечанию заказчика: сделать окно чуть шире/длиннее под длинные надписи и значения
+        self.setMinimumWidth(420)
 
         self._institution_items: list[ComboItem] = []
         self._doctor_items: list[ComboItem] = []
-        self._device_items: list[ComboItem] = []
 
         self._build_ui()
         self._load_institutions()
+        QtCore.QTimer.singleShot(0, self._adjust_to_contents)
 
     def _build_ui(self) -> None:
         root = QtWidgets.QVBoxLayout(self)
@@ -38,13 +40,14 @@ class LoginDialog(QtWidgets.QDialog):
         header = QtWidgets.QHBoxLayout()
         title = QtWidgets.QLabel("Вход в систему")
         title_font = title.font()
-        title_font.setPointSize(14)
+        title_font.setPointSize(12)
         title_font.setBold(True)
         title.setFont(title_font)
         header.addWidget(title)
         header.addStretch(1)
 
         self.settings_btn = QtWidgets.QToolButton()
+        # Ближе к скрину: шестерёнка в правом верхнем углу
         self.settings_btn.setText("⚙")
         self.settings_btn.setToolTip("Настройки")
         header.addWidget(self.settings_btn)
@@ -56,15 +59,17 @@ class LoginDialog(QtWidgets.QDialog):
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(10)
 
-        self.institution_combo = QtWidgets.QComboBox()
-        self.doctor_combo = QtWidgets.QComboBox()
-        self.device_combo = QtWidgets.QComboBox()
+        self.institution_combo = AutoComboBox(max_popup_items=30)
+        self.doctor_combo = AutoComboBox(max_popup_items=30)
+        # По ТЗ: окно входа небольшое, но текст в комбобоксах не должен обрезаться
+        for cb in (self.institution_combo, self.doctor_combo):
+            cb.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
+            cb.currentTextChanged.connect(lambda _t=None: self._adjust_to_contents())
 
         self.institution_combo.currentIndexChanged.connect(self._on_institution_changed)
 
         form.addRow(self._bold_label("Учреждение:"), self.institution_combo)
         form.addRow(self._bold_label("Врач:"), self.doctor_combo)
-        form.addRow(self._bold_label("Аппарат:"), self.device_combo)
         root.addLayout(form)
 
         self.error_label = QtWidgets.QLabel("")
@@ -89,6 +94,15 @@ class LoginDialog(QtWidgets.QDialog):
 
         self.settings_btn.clicked.connect(self._open_settings)
 
+    def _adjust_to_contents(self) -> None:
+        # Подгоняем диалог под текущие значения комбобоксов (и их sizeHint).
+        try:
+            self.institution_combo.setMinimumWidth(self.institution_combo.sizeHint().width())
+            self.doctor_combo.setMinimumWidth(self.doctor_combo.sizeHint().width())
+        except Exception:
+            pass
+        self.adjustSize()
+
     def _bold_label(self, text: str) -> QtWidgets.QLabel:
         lbl = QtWidgets.QLabel(text)
         f = lbl.font()
@@ -105,48 +119,40 @@ class LoginDialog(QtWidgets.QDialog):
         if self._institution_items:
             self.institution_combo.setCurrentIndex(0)
             self._on_institution_changed(0)
+        self._adjust_to_contents()
 
     @QtCore.Slot(int)
     def _on_institution_changed(self, index: int) -> None:
         self.error_label.setText("")
         if index < 0 or index >= len(self._institution_items):
             self._doctor_items = []
-            self._device_items = []
             self.doctor_combo.clear()
-            self.device_combo.clear()
             return
 
         inst_id = self._institution_items[index].id
         self._doctor_items = list_doctors(inst_id)
-        self._device_items = list_devices(inst_id)
 
         self.doctor_combo.clear()
         for item in self._doctor_items:
             self.doctor_combo.addItem(item.name, item.id)
 
-        self.device_combo.clear()
-        for item in self._device_items:
-            self.device_combo.addItem(item.name, item.id)
-
         if self._doctor_items:
             self.doctor_combo.setCurrentIndex(0)
-        if self._device_items:
-            self.device_combo.setCurrentIndex(0)
+        self._adjust_to_contents()
 
     def _current_ids(self) -> tuple[int | None, int | None, int | None]:
         inst_id = self.institution_combo.currentData()
         doc_id = self.doctor_combo.currentData()
-        dev_id = self.device_combo.currentData()
-        return inst_id, doc_id, dev_id
+        return inst_id, doc_id, None
 
     @QtCore.Slot()
     def _login(self) -> None:
-        inst_id, doc_id, dev_id = self._current_ids()
-        if not inst_id or not doc_id or not dev_id:
-            self.error_label.setText("Заполните все поля (учреждение, врач, аппарат).")
+        inst_id, doc_id, _ = self._current_ids()
+        if not inst_id or not doc_id:
+            self.error_label.setText("Заполните все поля (учреждение, врач).")
             return
 
-        result = LoginResult(int(inst_id), int(doc_id), int(dev_id))
+        result = LoginResult(int(inst_id), int(doc_id))
         self.logged_in.emit(result)
         self.accept()
 

@@ -11,6 +11,7 @@ from PySide6 import QtCore, QtWidgets
 
 from ..db import connect
 from ..paths import protocols_dir
+from .auto_combo import AutoComboBox
 
 
 MONTHS = [
@@ -60,21 +61,21 @@ class ReportDialog(QtWidgets.QDialog):
         pf.setVerticalSpacing(10)
 
         pf.addWidget(QtWidgets.QLabel("Год:"), 0, 0)
-        self.year_combo = QtWidgets.QComboBox()
+        self.year_combo = AutoComboBox(max_popup_items=30)
         pf.addWidget(self.year_combo, 0, 1)
 
         pf.addWidget(QtWidgets.QLabel("Месяц:"), 0, 2)
-        self.month_combo = QtWidgets.QComboBox()
+        self.month_combo = AutoComboBox(max_popup_items=30)
         for name, num in MONTHS:
             self.month_combo.addItem(name, num)
         pf.addWidget(self.month_combo, 0, 3)
 
         pf.addWidget(QtWidgets.QLabel("Тип исследования:"), 1, 0)
-        self.study_combo = QtWidgets.QComboBox()
+        self.study_combo = AutoComboBox(max_popup_items=30)
         pf.addWidget(self.study_combo, 1, 1)
 
         pf.addWidget(QtWidgets.QLabel("Канал поступления:"), 1, 2)
-        self.channel_combo = QtWidgets.QComboBox()
+        self.channel_combo = AutoComboBox(max_popup_items=30)
         pf.addWidget(self.channel_combo, 1, 3)
 
         btn_row = QtWidgets.QHBoxLayout()

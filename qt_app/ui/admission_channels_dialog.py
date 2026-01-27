@@ -82,6 +82,8 @@ class AdmissionChannelsDialog(QtWidgets.QDialog):
     def _ask_name_active(self, *, title: str, name: str = "", active: bool = True) -> tuple[str, bool] | None:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle(title)
+        # По замечанию: сделать окно шире, чтобы подписи/значения помещались
+        dlg.setMinimumWidth(420)
         layout = QtWidgets.QVBoxLayout(dlg)
         form = QtWidgets.QFormLayout()
         name_edit = QtWidgets.QLineEdit(name)

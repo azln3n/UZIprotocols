@@ -10,3 +10,14 @@ build/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.env
+
+UltrasoundProtocolSystem/uzi_protocols.db
+
+UltrasoundProtocolSystem/protocols/**
+!UltrasoundProtocolSystem/protocols/templates/**
+!UltrasoundProtocolSystem/protocols/templates/.gitkeep
+
+# Office temp files / local exports
+~$*.docx
+Отчет_*.csv
