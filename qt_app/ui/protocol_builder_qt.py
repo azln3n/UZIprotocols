@@ -8,6 +8,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..db import connect
 from ..repo import get_protocol_draft_id, load_protocol_values
+from .auto_combo import AutoComboBox
 
 TEMPLATE_MULTI_DELIM = " | "
 
@@ -49,6 +50,9 @@ class FieldBinding:
         if isinstance(w, QtWidgets.QPlainTextEdit):
             return w.toPlainText()
         if isinstance(w, QtWidgets.QComboBox):
+            tpl_text = w.property("template_text_widget")
+            if isinstance(tpl_text, QtWidgets.QPlainTextEdit):
+                return tpl_text.toPlainText()
             if w.property("template_multi"):
                 model = w.model()
                 values = [
@@ -71,6 +75,10 @@ class FieldBinding:
         elif isinstance(w, QtWidgets.QPlainTextEdit):
             w.setPlainText(value)
         elif isinstance(w, QtWidgets.QComboBox):
+            tpl_text = w.property("template_text_widget")
+            if isinstance(tpl_text, QtWidgets.QPlainTextEdit):
+                tpl_text.setPlainText(value)
+                return
             if w.property("template_multi"):
                 model = w.model()
                 if value:
@@ -108,13 +116,23 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
         super().__init__(parent)
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
 
         self.toggle_btn = QtWidgets.QToolButton()
-        self.toggle_btn.setText(title)
+        # По просьбе: двоеточие после названия группы
+        t = (title or "").strip()
+        if t and not t.endswith(":"):
+            t = t + ":"
+        self.toggle_btn.setText(t)
         self.toggle_btn.setCheckable(True)
         self.toggle_btn.setChecked(expanded)
         self.toggle_btn.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        # По ТЗ: группы выглядят как "длинные кнопки" на всю ширину
+        self.toggle_btn.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
+        )
+        self.toggle_btn.setMinimumHeight(34)
+        self.toggle_btn.setMaximumHeight(34)
         self.toggle_btn.setArrowType(
             QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow
         )
@@ -124,8 +142,12 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
             QToolButton {
               background: #C8E6C9; /* светло-зелёный */
               font-weight: bold;
-              font-size: 13pt;
-              padding: 10px;
+              font-size: 12pt;
+              padding: 8px 10px;
+              /* Чтобы "шапка" группы заканчивалась там же, где и поля (с небольшим отступом) */
+              margin-left: 6px;
+              margin-right: 6px;
+              border: 1px solid #bbbbbb;
               border-radius: 4px;
               text-align: left;
             }
@@ -135,8 +157,11 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
 
         self.content = QtWidgets.QWidget()
         self.content_layout = QtWidgets.QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(12, 6, 12, 6)
-        self.content_layout.setSpacing(8)
+        # По скринам: элементы внутри группы должны быть "на одном уровне" с заголовком/табом,
+        # без лишнего сдвига вправо.
+        # Чуть ближе к заголовку группы
+        self.content_layout.setContentsMargins(0, 4, 0, 4)
+        self.content_layout.setSpacing(6)
         self.content.setVisible(expanded)
         layout.addWidget(self.content)
 
@@ -171,21 +196,29 @@ class ProtocolBuilderQt(QtCore.QObject):
         self._read_only = read_only
 
         self.tab_widget = QtWidgets.QTabWidget()
-        self.tab_widget.setDocumentMode(True)
+        # DocumentMode иногда рисует лишнюю "полосу/линию" вверху на Windows;
+        # по скринам нужна более "плоская" панель без разделителей.
+        self.tab_widget.setDocumentMode(False)
 
         self.fields: dict[int, FieldBinding] = {}
         self.field_meta: dict[int, FieldMeta] = {}
         self.hidden_by_trigger: dict[int, list[int]] = {}
+        # For TЗ formula syntax "Вкладка.Группа.Поле"
+        self._tab_name_by_id: dict[int, str] = {}
+        self._group_name_by_id: dict[int, str] = {}
+        self._field_id_by_path: dict[str, int] = {}
+        self._scroll_body_by_viewport: dict[QtCore.QObject, QtWidgets.QWidget] = {}
 
         self._protocol_id: int | None = None
         self._loading = False
         self._tab_ids: list[int] = []
+        self._combo_popup_targets: set[QtWidgets.QComboBox] = set()
 
     def build(self) -> QtWidgets.QWidget:
         container = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(0)
         layout.addWidget(self.tab_widget, 1)
 
         self._load_structure()
@@ -200,6 +233,9 @@ class ProtocolBuilderQt(QtCore.QObject):
         self.field_meta.clear()
         self.hidden_by_trigger.clear()
         self._tab_ids.clear()
+        self._tab_name_by_id.clear()
+        self._group_name_by_id.clear()
+        self._field_id_by_path.clear()
 
         with connect() as conn:
             tabs = conn.execute(
@@ -226,6 +262,7 @@ class ProtocolBuilderQt(QtCore.QObject):
                 tab_id = int(tab["id"])
                 tab_name = str(tab["name"])
                 self._tab_ids.append(tab_id)
+                self._tab_name_by_id[tab_id] = tab_name
 
                 tab_root = QtWidgets.QWidget()
                 tab_layout = QtWidgets.QVBoxLayout(tab_root)
@@ -235,13 +272,23 @@ class ProtocolBuilderQt(QtCore.QObject):
                 scroll = QtWidgets.QScrollArea()
                 scroll.setWidgetResizable(True)
                 scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+                scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
                 scroll_body = QtWidgets.QWidget()
+                scroll_body.setSizePolicy(
+                    QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum
+                )
                 scroll_layout = QtWidgets.QVBoxLayout(scroll_body)
-                scroll_layout.setContentsMargins(8, 8, 8, 8)
+                # Небольшой отступ справа от края окна (и симметрично слева)
+                scroll_layout.setContentsMargins(0, 8, 10, 8)
                 scroll_layout.setSpacing(10)
+                scroll_layout.setSizeConstraint(QtWidgets.QLayout.SizeConstraint.SetMinimumSize)
                 scroll_layout.addStretch(1)
                 scroll.setWidget(scroll_body)
+                vp = scroll.viewport()
+                self._scroll_body_by_viewport[vp] = scroll_body
+                vp.installEventFilter(self)
                 tab_layout.addWidget(scroll, 1)
 
                 groups = conn.execute(
@@ -263,10 +310,14 @@ class ProtocolBuilderQt(QtCore.QObject):
                 for group in groups:
                     group_id = int(group["id"])
                     group_name = str(group["name"])
+                    self._group_name_by_id[group_id] = group_name
                     expanded = True if group_count == 1 else bool(group["is_expanded_by_default"])
 
                     group_box = CollapsibleGroupBox(group_name, expanded=expanded)
                     scroll_layout.addWidget(group_box)
+                    group_box.toggle_btn.clicked.connect(
+                        lambda _=None, sb=scroll_body: sb.setMinimumHeight(sb.sizeHint().height())
+                    )
 
                     fields_rows = conn.execute(
                         """
@@ -283,14 +334,34 @@ class ProtocolBuilderQt(QtCore.QObject):
                         (group_id,),
                     ).fetchall()
 
-                    # layout by columns
-                    col_layout = QtWidgets.QHBoxLayout()
-                    col_layout.setContentsMargins(0, 0, 0, 0)
-                    col_layout.setSpacing(16)
+                    # layout by columns:
+                    # - "сплошная" (1) на всю ширину
+                    # - "левая" (2) и "правая" (3) в две колонки
+                    full_widget = QtWidgets.QWidget()
+                    full_grid = QtWidgets.QGridLayout(full_widget)
+                    full_grid.setContentsMargins(6, 0, 6, 0)
+                    full_grid.setHorizontalSpacing(10)
+                    full_grid.setVerticalSpacing(8)
+                    full_grid.setColumnStretch(1, 1)
 
-                    columns: dict[int, QtWidgets.QGridLayout] = {}
-                    column_widgets: dict[int, QtWidgets.QWidget] = {}
-                    row_index: dict[int, int] = {}
+                    left_widget = QtWidgets.QWidget()
+                    left_grid = QtWidgets.QGridLayout(left_widget)
+                    left_grid.setContentsMargins(6, 0, 6, 0)
+                    left_grid.setHorizontalSpacing(10)
+                    left_grid.setVerticalSpacing(8)
+                    left_grid.setColumnStretch(1, 1)
+
+                    right_widget = QtWidgets.QWidget()
+                    right_grid = QtWidgets.QGridLayout(right_widget)
+                    right_grid.setContentsMargins(6, 0, 6, 0)
+                    right_grid.setHorizontalSpacing(10)
+                    right_grid.setVerticalSpacing(8)
+                    right_grid.setColumnStretch(1, 1)
+
+                    row_index = {"full": 0, "left": 0, "right": 0}
+                    label_widths = {"full": 0, "left": 0, "right": 0}
+                    max_label_width = 0
+                    counts = {"full": 0, "left": 0, "right": 0}
 
                     for fr in fields_rows:
                         field_id = int(fr["id"])
@@ -316,29 +387,48 @@ class ProtocolBuilderQt(QtCore.QObject):
                             trigger_value=str(fr["hidden_trigger_value"]) if fr["hidden_trigger_value"] is not None else None,
                         )
                         self.field_meta[field_id] = meta
+                        # "Вкладка.Группа.Поле" for formulas; keep a normalized key.
+                        # If duplicates exist, later one will overwrite; that's OK because we use full path.
+                        key = f"{tab_name.strip()}.{group_name.strip()}.{meta.name.strip()}"
+                        self._field_id_by_path[key] = field_id
 
                         cnum = meta.column_num or 1
-                        if cnum not in columns:
-                            colw = QtWidgets.QWidget()
-                            grid = QtWidgets.QGridLayout(colw)
-                            grid.setContentsMargins(0, 0, 0, 0)
-                            grid.setHorizontalSpacing(10)
-                            grid.setVerticalSpacing(8)
-                            grid.setColumnStretch(1, 1)
-                            columns[cnum] = grid
-                            column_widgets[cnum] = colw
-                            row_index[cnum] = 0
-                            col_layout.addWidget(colw, 1)
+                        if cnum == 1:
+                            grid = full_grid
+                            key = "full"
+                        elif cnum == 2:
+                            grid = left_grid
+                            key = "left"
+                        else:
+                            grid = right_grid
+                            key = "right"
 
-                        grid = columns[cnum]
-                        r = row_index[cnum]
-                        row_index[cnum] = r + 1
+                        r = row_index[key]
+                        row_index[key] = r + 1
 
                         binding = self._create_field_widget(conn, meta)
                         self.fields[field_id] = binding
 
                         if meta.required:
                             binding.label.setText(binding.label.text() + " *")
+                        # Для "шаблон": внутри контейнера два элемента (выбор + текст ниже),
+                        # поэтому стандартное VCenter приводит к тому, что подпись оказывается "между"
+                        # комбобоксом и текстом. Выравниваем подпись по верху, чтобы она была напротив выбора.
+                        if meta.field_type == "шаблон":
+                            binding.label.setAlignment(
+                                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
+                            )
+                        else:
+                            binding.label.setAlignment(
+                                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
+                            )
+                        try:
+                            lw = binding.label.sizeHint().width()
+                            label_widths[key] = max(label_widths.get(key, 0), lw)
+                            max_label_width = max(max_label_width, lw)
+                        except Exception:
+                            pass
+                        counts[key] += 1
 
                         # hidden triggers mapping
                         if meta.is_hidden and meta.trigger_field_id:
@@ -346,14 +436,54 @@ class ProtocolBuilderQt(QtCore.QObject):
                             binding.container.setVisible(False)
 
                         grid.addWidget(binding.label, r, 0, 1, 1)
-                        grid.addWidget(binding.container, r, 1, 1, 1)
+                        if meta.field_type == "шаблон":
+                            # Важно: шаблонный блок выше строки (комбо + текст ниже).
+                            # При изменении высоты текстового поля без AlignTop Qt может центрировать
+                            # контейнер по вертикали внутри строки, и комбобокс "уезжает" вниз.
+                            grid.addWidget(
+                                binding.container,
+                                r,
+                                1,
+                                1,
+                                1,
+                                QtCore.Qt.AlignmentFlag.AlignTop,
+                            )
+                        else:
+                            grid.addWidget(binding.container, r, 1, 1, 1)
 
-                    group_box.content_layout.addLayout(col_layout)
+                    if counts["full"] > 0:
+                        group_box.content_layout.addWidget(full_widget)
+
+                    if counts["left"] > 0 or counts["right"] > 0:
+                        lr_layout = QtWidgets.QHBoxLayout()
+                        lr_layout.setContentsMargins(0, 0, 0, 0)
+                        lr_layout.setSpacing(16)
+                        # Важно: даже если одна из колонок пуста, добавляем оба widget и НЕ скрываем их,
+                        # иначе оставшаяся колонка растянется "сплошняком" на всю ширину.
+                        # Пустая колонка должна просто занимать своё место (половину ширины).
+                        lr_layout.addWidget(left_widget, 1)
+                        lr_layout.addWidget(right_widget, 1)
+                        group_box.content_layout.addLayout(lr_layout)
+
+                    # Выравниваем старт полей по самой длинной подписи (единая ширина для всех колонок)
+                    mw = int(max_label_width or 0)
+                    if mw > 0:
+                        for grid in (full_grid, left_grid, right_grid):
+                            grid.setColumnMinimumWidth(0, mw)
 
                 if stretch_item is not None:
                     scroll_layout.addItem(stretch_item)
                 else:
                     scroll_layout.addStretch(1)
+                scroll_body.adjustSize()
+                try:
+                    scroll_body.setMinimumHeight(scroll_body.sizeHint().height())
+                except Exception:
+                    pass
+                try:
+                    scroll_body.setMinimumWidth(scroll.viewport().width())
+                except Exception:
+                    pass
                 self.tab_widget.addTab(tab_root, tab_name)
                 self.tab_widget.tabBar().setTabData(self.tab_widget.count() - 1, tab_id)
 
@@ -381,10 +511,11 @@ class ProtocolBuilderQt(QtCore.QObject):
               background: #9ec9f5;
               color: black;
               font: bold 12pt "Arial";
-              padding: 6px 14px;
+              padding: 10px 18px;
               margin-right: 4px;
               border-top-left-radius: 6px;
               border-top-right-radius: 6px;
+              border: 1px solid #bbbbbb;
             }
             QTabBar::tab:selected { background: #FF95A8; }
             """
@@ -392,9 +523,10 @@ class ProtocolBuilderQt(QtCore.QObject):
 
     def _create_field_widget(self, conn, meta: FieldMeta) -> FieldBinding:
         label = QtWidgets.QLabel(meta.name + ":")
-        label.setStyleSheet("font-weight: bold;")
+        label.setStyleSheet("font-weight: bold; padding: 4px 6px;")
 
         container = QtWidgets.QWidget()
+        container.setStyleSheet("border: 0px;")
         hl = QtWidgets.QHBoxLayout(container)
         hl.setContentsMargins(0, 0, 0, 0)
         hl.setSpacing(6)
@@ -402,63 +534,119 @@ class ProtocolBuilderQt(QtCore.QObject):
         w: QtWidgets.QWidget
         t = meta.field_type
 
+        apply_border = True
+        grow_height = False
+        binding_widget: QtWidgets.QWidget | None = None
+        display_widget: QtWidgets.QWidget | None = None
         if t == "текст":
             te = QtWidgets.QPlainTextEdit()
-            te.setMinimumHeight(max(1, meta.height) * 26)
+            te.setMinimumHeight(70)
             if self._read_only:
                 te.setReadOnly(True)
             w = te
         elif t == "словарь":
-            cb = QtWidgets.QComboBox()
+            cb = AutoComboBox(max_popup_items=30)
+            # По ТЗ: словарь — выпадающий список с возможностью редактирования (ввод своего значения)
+            cb.setEditable(False)
+            cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+            cb.setSizeAdjustPolicy(
+                QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            cb.setMinimumContentsLength(16)
             vals = conn.execute(
                 "SELECT value FROM dictionary_values WHERE field_id = ? ORDER BY display_order",
                 (meta.id,),
             ).fetchall()
             for v in vals:
                 cb.addItem(str(v["value"]))
+            cb.setCurrentIndex(-1)
+            cb.setProperty("multiline_display", True)
+            # По просьбе: когда ничего не выбрано, показываем пусто (без "Выберите")
+            cb.setProperty("placeholder_text", "")
+            # По просьбе: визуально одинаковая "толщина" полей — не раздуваем комбобокс по высоте.
+            cb.setProperty("max_display_height", 30)
+            cb.currentIndexChanged.connect(lambda _=None: cb.adjust_multiline_height())
+            QtCore.QTimer.singleShot(0, cb.adjust_multiline_height)
             if self._read_only:
                 cb.setEnabled(False)
             w = cb
+            grow_height = True
         elif t == "шаблон":
-            cb = QtWidgets.QComboBox()
-            cb.setProperty("template_multi", True)
+            cb = AutoComboBox(max_popup_items=30)
             cb.setEditable(True)
             if cb.lineEdit():
                 cb.lineEdit().setReadOnly(True)
             cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
-            model = QtGui.QStandardItemModel(cb)
+            cb.setSizeAdjustPolicy(
+                QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            cb.setMinimumContentsLength(16)
             vals = conn.execute(
                 "SELECT value FROM dictionary_values WHERE field_id = ? ORDER BY display_order",
                 (meta.id,),
             ).fetchall()
             for v in vals:
-                item = QtGui.QStandardItem(str(v["value"]))
-                item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                item.setData(QtCore.Qt.CheckState.Unchecked, QtCore.Qt.ItemDataRole.CheckStateRole)
-                model.appendRow(item)
-            cb.setModel(model)
-
-            def _toggle_item(idx: QtCore.QModelIndex) -> None:
-                item = model.itemFromIndex(idx)
-                if not item:
-                    return
-                state = item.checkState()
-                item.setCheckState(
-                    QtCore.Qt.CheckState.Unchecked
-                    if state == QtCore.Qt.CheckState.Checked
-                    else QtCore.Qt.CheckState.Checked
-                )
-                values = [
-                    model.item(i).text()
-                    for i in range(model.rowCount())
-                    if model.item(i).checkState() == QtCore.Qt.CheckState.Checked
-                ]
-                cb.setEditText(" ".join(values))
-
-            cb.view().pressed.connect(_toggle_item)
+                cb.addItem(str(v["value"]))
+            cb.setCurrentIndex(-1)
+            cb.setEditText("")
+            # По просьбе: пусто, без "Выберите"
+            self._setup_combo_placeholder(cb, "")
+            self._register_combo_popup(cb)
             if self._read_only:
                 cb.setEnabled(False)
-            w = cb
+
+            ta = QtWidgets.QPlainTextEdit()
+            # Высота должна выглядеть как "3 обычных строки" (комбобокс + поле ниже).
+            # Считаем динамически от реальной высоты комбобокса, чтобы на разных темах/шрифтах
+            # визуально совпадало.
+            ta.setPlaceholderText("")
+            if self._read_only:
+                ta.setReadOnly(True)
+            # Скроллбар при необходимости
+            ta.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            ta.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            ta.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+            cb.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+
+            def _append_value(text: str) -> None:
+                if not text or not text.strip():
+                    return
+                cur = ta.toPlainText().strip()
+                if not cur:
+                    ta.setPlainText(text)
+                else:
+                    ta.setPlainText(cur + "\n" + text)
+                ta.moveCursor(QtGui.QTextCursor.MoveOperation.End)
+                cb.setCurrentIndex(-1)
+
+            cb.activated.connect(lambda _idx, c=cb: _append_value(c.currentText()))
+            cb.setProperty("template_text_widget", ta)
+
+            # Layout: комбобокс справа от названия, текстовое поле ниже
+            inner = QtWidgets.QWidget()
+            vlayout = QtWidgets.QVBoxLayout(inner)
+            vlayout.setContentsMargins(0, 0, 0, 0)
+            vlayout.setSpacing(6)
+            vlayout.addWidget(cb, 0)
+            vlayout.addWidget(ta, 0)
+
+            def _sync_template_heights() -> None:
+                # "Обычная строка" = высота комбобокса в текущем стиле
+                base_h = int(cb.sizeHint().height() or 26)
+                spacing = int(vlayout.spacing() or 0)
+                target_total = base_h * 5
+                ta_h = max(24, target_total - base_h - spacing)
+                ta.setFixedHeight(int(ta_h))
+                # фиксируем общую высоту блока, чтобы всегда выглядело как 3 строки
+                inner.setMinimumHeight(int(target_total))
+                inner.setMaximumHeight(int(target_total))
+
+            QtCore.QTimer.singleShot(0, _sync_template_heights)
+            w = inner
+            apply_border = False
+            grow_height = True
+            binding_widget = cb
+            display_widget = inner
         elif t == "дата":
             de = QtWidgets.QDateEdit()
             de.setCalendarPopup(True)
@@ -514,11 +702,29 @@ class ProtocolBuilderQt(QtCore.QObject):
                 le.setReadOnly(True)
             w = le
 
-        # width hint
-        w.setMinimumWidth(max(120, meta.width * 8))
-        hl.addWidget(w, 1)
+        if display_widget is None:
+            display_widget = w
+        if binding_widget is None:
+            binding_widget = w
 
-        binding = FieldBinding(meta=meta, widget=w, label=label, container=container)
+        display_widget.setMinimumWidth(200)
+        if not grow_height:
+            display_widget.setMinimumHeight(30)
+        if apply_border:
+            display_widget.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+        display_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred if grow_height else QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        if meta.field_type == "шаблон":
+            # Шаблонный блок не должен растягиваться по вертикали; пусть будет фиксированный
+            # (комбобокс + поле высотой 40), но занимает всю ширину.
+            display_widget.setSizePolicy(
+                QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
+            )
+        hl.addWidget(display_widget, 1)
+
+        binding = FieldBinding(meta=meta, widget=binding_widget, label=label, container=container)
 
         return binding
 
@@ -530,10 +736,47 @@ class ProtocolBuilderQt(QtCore.QObject):
             w.textChanged.connect(handler)
         elif isinstance(w, QtWidgets.QComboBox):
             w.currentTextChanged.connect(handler)
+            tpl_text = w.property("template_text_widget")
+            if isinstance(tpl_text, QtWidgets.QPlainTextEdit):
+                tpl_text.textChanged.connect(handler)
         elif isinstance(w, QtWidgets.QDateEdit):
             w.dateChanged.connect(handler)
         elif isinstance(w, QtWidgets.QTimeEdit):
             w.timeChanged.connect(handler)
+
+    def _setup_combo_placeholder(self, combo: QtWidgets.QComboBox, text: str) -> None:
+        if not combo.isEditable():
+            combo.setEditable(True)
+        le = combo.lineEdit()
+        if le is None:
+            return
+        le.setPlaceholderText(text)
+        pal = combo.palette()
+        pal.setColor(QtGui.QPalette.ColorRole.PlaceholderText, QtGui.QColor("#9aa0a6"))
+        combo.setPalette(pal)
+
+    def _register_combo_popup(self, combo: QtWidgets.QComboBox) -> None:
+        le = combo.lineEdit()
+        if le is None:
+            return
+        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        le.installEventFilter(self)
+        self._combo_popup_targets.add(combo)
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+            for combo in self._combo_popup_targets:
+                if combo.lineEdit() is obj:
+                    combo.showPopup()
+                    return True
+        if event.type() == QtCore.QEvent.Type.Resize and obj in self._scroll_body_by_viewport:
+            try:
+                body = self._scroll_body_by_viewport[obj]
+                if isinstance(body, QtWidgets.QWidget) and isinstance(obj, QtWidgets.QWidget):
+                    body.setMinimumWidth(obj.width())
+            except Exception:
+                pass
+        return super().eventFilter(obj, event)
 
     def _current_ref_range(self, meta: FieldMeta) -> tuple[float | None, float | None]:
         if self.patient_gender == "жен":
@@ -578,18 +821,49 @@ class ProtocolBuilderQt(QtCore.QObject):
     def _update_hidden(self, trigger_field_id: int) -> None:
         if trigger_field_id not in self.hidden_by_trigger:
             return
-        trigger_val = self.fields[trigger_field_id].get_str()
+        trigger_val = (self.fields[trigger_field_id].get_str() or "").strip()
+        trigger_widget = self.fields[trigger_field_id].widget
+
+        def _first_choice_text() -> str | None:
+            if not isinstance(trigger_widget, QtWidgets.QComboBox):
+                return None
+            # template_multi uses model items (checkable)
+            if trigger_widget.property("template_multi"):
+                try:
+                    m = trigger_widget.model()
+                    if m is None or m.rowCount() <= 0:
+                        return None
+                    it = m.item(0)
+                    return (it.text() if it else "").strip()
+                except Exception:
+                    return None
+            if trigger_widget.count() <= 0:
+                return None
+            return (trigger_widget.itemText(0) or "").strip()
+
+        first_txt = _first_choice_text()
         for hid in self.hidden_by_trigger[trigger_field_id]:
             meta = self.field_meta[hid]
-            show = bool(meta.trigger_value) and trigger_val == meta.trigger_value
+            # По ТЗ:
+            # - если выбрано первое значение — поле скрыто
+            # - любое другое значение — поле показывается
+            if isinstance(trigger_widget, QtWidgets.QComboBox) and first_txt is not None:
+                if not trigger_val:
+                    show = False
+                elif trigger_widget.property("template_multi"):
+                    parts = [p.strip() for p in trigger_val.split(TEMPLATE_MULTI_DELIM) if p.strip()]
+                    # Если выбрано только первое значение — скрываем, иначе показываем
+                    show = not (len(parts) == 1 and parts[0] == first_txt)
+                else:
+                    show = trigger_val != first_txt
+            else:
+                # fallback for legacy behavior
+                show = bool(meta.trigger_value) and trigger_val == str(meta.trigger_value).strip()
             self.fields[hid].container.setVisible(show)
             self.fields[hid].label.setVisible(show)
 
     def _recalculate_formulas(self) -> None:
         if self._loading:
-            return
-        if self._has_missing_required_fields():
-            self._clear_formula_fields()
             return
         for fid, binding in self.fields.items():
             if binding.meta.field_type != "формула":
@@ -599,6 +873,12 @@ class ProtocolBuilderQt(QtCore.QObject):
                 continue
             result = self._evaluate_formula(formula)
             if result is None:
+                self._loading = True
+                try:
+                    binding.set_str("")
+                    self._set_widget_bg(binding.widget, None)
+                finally:
+                    self._loading = False
                 continue
             if binding.meta.precision is not None:
                 result = round(result, binding.meta.precision)
@@ -613,26 +893,6 @@ class ProtocolBuilderQt(QtCore.QObject):
                 self._loading = False
             self._check_reference(fid)
 
-    def _has_missing_required_fields(self) -> bool:
-        for b in self.fields.values():
-            if not b.meta.required:
-                continue
-            if b.meta.is_hidden and not b.container.isVisible():
-                continue
-            v = b.get_str()
-            if not v or not v.strip():
-                return True
-        return False
-
-    def _clear_formula_fields(self) -> None:
-        self._loading = True
-        try:
-            for fid, binding in self.fields.items():
-                if binding.meta.field_type == "формула":
-                    binding.set_str("")
-                    self._set_widget_bg(binding.widget, None)
-        finally:
-            self._loading = False
     def _evaluate_formula(self, formula: str) -> float | None:
         # same approach as Tkinter: references like "Вкладка.Группа.Поле"
         try:
@@ -642,13 +902,27 @@ class ProtocolBuilderQt(QtCore.QObject):
 
             for tab_name, group_name, field_name in field_refs:
                 key = f"{tab_name.strip()}.{group_name.strip()}.{field_name.strip()}"
-                # Tkinter only matches by field name; keep parity
+                # По ТЗ: матчим именно по полному пути "Вкладка.Группа.Поле".
                 v = "0"
-                for fid, meta in self.field_meta.items():
-                    if meta.name.strip() == field_name.strip() and fid in self.fields:
-                        raw = self.fields[fid].get_str()
-                        v = raw.replace(",", ".") if raw else "0"
-                        break
+                fid = self._field_id_by_path.get(key)
+                if fid is not None and fid in self.fields:
+                    raw = self.fields[fid].get_str()
+                    if not raw or not raw.strip():
+                        return None
+                    v = raw.replace(",", ".")
+                else:
+                    # Fallback для старых формул: если путь не найден, пробуем как раньше — по имени поля.
+                    found = False
+                    for fid2, meta in self.field_meta.items():
+                        if meta.name.strip() == field_name.strip() and fid2 in self.fields:
+                            raw = self.fields[fid2].get_str()
+                            if not raw or not raw.strip():
+                                return None
+                            v = raw.replace(",", ".")
+                            found = True
+                            break
+                    if not found:
+                        return None
                 values[key] = v
 
             expression = formula

@@ -7,7 +7,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ..printing.protocol_printer_qt import ProtocolPrinterQt
 from ..repo import finalize_open_protocols, get_patient_brief, list_study_types, save_protocol
 from .protocol_builder_qt import ProtocolBuilderQt
-from .settings_structure_dialog import SettingsStructureDialog
+from .settings_dialog import SettingsDialog
+from .auto_combo import AutoComboBox
 
 
 class ProtocolArea(QtWidgets.QWidget):
@@ -24,13 +25,11 @@ class ProtocolArea(QtWidgets.QWidget):
         *,
         institution_id: int,
         doctor_id: int,
-        device_id: int,
         parent: QtWidgets.QWidget | None = None,
     ):
         super().__init__(parent)
         self.institution_id = institution_id
         self.doctor_id = doctor_id
-        self.device_id = device_id
 
         self.patient_id: int | None = None
         self.patient_gender: str | None = None
@@ -44,26 +43,32 @@ class ProtocolArea(QtWidgets.QWidget):
     def _build_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
+        layout.setSpacing(0)
 
-        # 1) Плашка "Окно протокола"
-        title_frame = QtWidgets.QFrame()
-        title_frame.setStyleSheet("QFrame { background: #f1f1f1; border: 1px solid #ddd; border-radius: 6px; }")
-        title_layout = QtWidgets.QHBoxLayout(title_frame)
-        title_layout.setContentsMargins(10, 8, 10, 8)
-        title_layout.setSpacing(0)
+        # 1) Общая плашка (заголовок + кнопки), в цвет блока списка пациентов
+        top_frame = QtWidgets.QFrame()
+        top_frame.setStyleSheet("QFrame { background: #f1f1f1; border: 1px solid #ddd; border-radius: 6px; }")
+        top_layout = QtWidgets.QVBoxLayout(top_frame)
+        # Чуть больше внутренние отступы, чтобы рамки кнопок не "упирались" в рамку плашки.
+        top_layout.setContentsMargins(12, 10, 12, 10)
+        top_layout.setSpacing(8)
 
-        title = QtWidgets.QLabel("Окно протокола")
-        f = title.font()
-        f.setPointSize(13)
+        self._title_full_text = "Окно протокола"
+        self.title_label = QtWidgets.QLabel(self._title_full_text)
+        f = self.title_label.font()
+        f.setPointSize(12)
         f.setBold(True)
-        title.setFont(f)
-        title.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        title_layout.addWidget(title, 1)
-        layout.addWidget(title_frame)
+        self.title_label.setFont(f)
+        self.title_label.setStyleSheet("background: transparent; border: 0; color: #000;")
+        self.title_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+        self.title_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Fixed)
+        self.title_label.setMinimumWidth(0)
+        top_layout.addWidget(self.title_label, 0)
 
-        # 2) Кнопки (одним рядом)
-        toolbar = QtWidgets.QHBoxLayout()
+        # 2) Кнопки (прокрутка с кнопками-стрелками)
+        toolbar_widget = QtWidgets.QWidget()
+        toolbar = QtWidgets.QHBoxLayout(toolbar_widget)
+        toolbar.setContentsMargins(0, 0, 0, 0)
         toolbar.setSpacing(6)
 
         back_btn = QtWidgets.QPushButton("Назад")
@@ -85,10 +90,6 @@ class ProtocolArea(QtWidgets.QWidget):
         about_btn = QtWidgets.QPushButton("О программе")
         about_btn.clicked.connect(self.about_requested.emit)
         toolbar.addWidget(about_btn)
-
-        self.start_btn = QtWidgets.QPushButton("Начать")
-        self.start_btn.clicked.connect(self._start)
-        toolbar.addWidget(self.start_btn)
 
         self.save_btn = QtWidgets.QPushButton("Сохранить")
         self.save_btn.clicked.connect(self._save)
@@ -116,7 +117,47 @@ class ProtocolArea(QtWidgets.QWidget):
         self.clear_btn.clicked.connect(self._clear)
         toolbar.addWidget(self.clear_btn)
 
-        layout.addLayout(toolbar)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(toolbar_widget)
+        self._toolbar_scroll = scroll
+        scroll.installEventFilter(self)
+        scroll.viewport().installEventFilter(self)
+        toolbar_widget.installEventFilter(self)
+
+        toolbar_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Fixed)
+        toolbar_widget.adjustSize()
+        toolbar_widget.setMinimumWidth(toolbar_widget.sizeHint().width())
+        # Чуть увеличиваем фиксированную высоту, чтобы рамка/фокус кнопок не обрезались сверху/снизу.
+        toolbar_h = int(back_btn.sizeHint().height()) + 4
+        toolbar_widget.setFixedHeight(toolbar_h)
+        scroll.setFixedHeight(toolbar_h)
+
+        left_btn = QtWidgets.QToolButton()
+        left_btn.setArrowType(QtCore.Qt.ArrowType.LeftArrow)
+        left_btn.setToolTip("Прокрутить влево")
+        left_btn.clicked.connect(lambda: self._scroll_toolbar(-180))
+        left_btn.setFixedHeight(toolbar_h)
+
+        right_btn = QtWidgets.QToolButton()
+        right_btn.setArrowType(QtCore.Qt.ArrowType.RightArrow)
+        right_btn.setToolTip("Прокрутить вправо")
+        right_btn.clicked.connect(lambda: self._scroll_toolbar(180))
+        right_btn.setFixedHeight(toolbar_h)
+
+        toolbar_row = QtWidgets.QHBoxLayout()
+        toolbar_row.setContentsMargins(0, 0, 0, 0)
+        toolbar_row.setSpacing(6)
+        toolbar_row.addWidget(left_btn, 0)
+        toolbar_row.addWidget(scroll, 1)
+        toolbar_row.addWidget(right_btn, 0)
+
+        top_layout.addLayout(toolbar_row)
+        layout.addWidget(top_frame)
+        layout.addSpacing(10)
 
         # 3) Синяя плашка: слева "Исследование", справа выбор (как в ТЗ)
         study_frame = QtWidgets.QFrame()
@@ -129,33 +170,51 @@ class ProtocolArea(QtWidgets.QWidget):
         study_lbl.setStyleSheet("color: white; font-weight: bold;")
         study_layout.addWidget(study_lbl)
 
-        self.study_combo = QtWidgets.QComboBox()
+        self.study_combo = AutoComboBox(max_popup_items=30)
         self.study_combo.setMinimumWidth(280)
+        try:
+            view = self.study_combo.view()
+            if view is not None:
+                view.setAlternatingRowColors(True)
+        except Exception:
+            pass
         study_layout.addWidget(self.study_combo, 1)
 
-        layout.addWidget(study_frame)
+        # По требованию: "Начать" рядом с выбором исследования
+        self.start_btn = QtWidgets.QPushButton("Начать")
+        self.start_btn.setStyleSheet(
+            "QPushButton { background: #2196F3; color: white; font-weight: bold; padding: 6px 14px; }"
+        )
+        self.start_btn.clicked.connect(self._start)
+        study_layout.addWidget(self.start_btn, 0)
 
-        # Инфо о пациенте (аккуратно, без "отладки")
-        self._patient_label_full_text = "Выберите пациента слева"
-        self.patient_label = QtWidgets.QLabel(self._patient_label_full_text)
-        self.patient_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Fixed)
-        self.patient_label.setMinimumWidth(0)
-        self.patient_label.setStyleSheet("color: #333;")
-        layout.addWidget(self.patient_label)
+        layout.addWidget(study_frame)
 
         self.error = QtWidgets.QLabel("")
         self.error.setStyleSheet("color: #b00020;")
         self.error.setWordWrap(True)
         layout.addWidget(self.error)
 
+        divider = QtWidgets.QFrame()
+        divider.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        divider.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
+        divider.setStyleSheet("color: #d0d0d0;")
+
         self.body_stack = QtWidgets.QStackedWidget()
         self.placeholder = QtWidgets.QLabel(
             "Область протокола.\nВыберите пациента и тип исследования, затем нажмите «Начать».",
             alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
         )
-        self.placeholder.setStyleSheet("color: #666; border: 1px dashed #bbb; padding: 20px;")
+        # По скринам: без пунктирной рамки (она выглядит как "лишняя линия/контур")
+        self.placeholder.setStyleSheet("color: #666; padding: 20px;")
         self.body_stack.addWidget(self.placeholder)
-        layout.addWidget(self.body_stack, 1)
+        body_container = QtWidgets.QWidget()
+        body_layout = QtWidgets.QVBoxLayout(body_container)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(divider)
+        body_layout.addWidget(self.body_stack, 1)
+        layout.addWidget(body_container, 1)
 
     def _load_studies(self) -> None:
         self.study_combo.clear()
@@ -171,35 +230,55 @@ class ProtocolArea(QtWidgets.QWidget):
         self.body_stack.setCurrentWidget(self.placeholder)
 
         if not patient_id:
-            self._patient_label_full_text = "Выберите пациента слева"
-            self.patient_label.setStyleSheet("color: #333;")
+            self._title_full_text = "Окно протокола"
+            self.title_label.setStyleSheet("background: transparent; border: 0; color: #000;")
+            self.title_label.setToolTip("")
         else:
             brief = get_patient_brief(patient_id)
             if brief:
                 name, gender = brief
                 self.patient_gender = gender
-                self._patient_label_full_text = f"Пациент: {name} ({gender})"
-                self.patient_label.setStyleSheet("color: #333;")
-                self.patient_label.setToolTip(self._patient_label_full_text)
+                # По ТЗ/скрину: "Окно протокола: <ФИО>"
+                self._title_full_text = f"Окно протокола: {name}"
+                self.title_label.setStyleSheet("background: transparent; border: 0; color: #000;")
+                self.title_label.setToolTip(f"Пациент: {name} ({gender})")
             else:
-                self._patient_label_full_text = "Пациент не найден"
-                self.patient_label.setStyleSheet("color: #b00020;")
+                self._title_full_text = "Окно протокола: пациент не найден"
+                self.title_label.setStyleSheet("background: transparent; border: 0; color: #b00020;")
 
-        self._update_patient_label_elide()
+        self._update_title_elide()
         self._sync_state()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
         super().resizeEvent(event)
-        self._update_patient_label_elide()
+        self._update_title_elide()
 
-    def _update_patient_label_elide(self) -> None:
-        full = getattr(self, "_patient_label_full_text", "") or ""
+    def _update_title_elide(self) -> None:
+        full = getattr(self, "_title_full_text", "") or ""
         if not full:
             return
-        fm = self.patient_label.fontMetrics()
-        self.patient_label.setText(
-            fm.elidedText(full, QtCore.Qt.TextElideMode.ElideRight, max(10, self.patient_label.width()))
+        fm = self.title_label.fontMetrics()
+        self.title_label.setText(
+            fm.elidedText(full, QtCore.Qt.TextElideMode.ElideRight, max(10, self.title_label.width()))
         )
+
+    def _scroll_toolbar(self, delta: int) -> None:
+        scroll = getattr(self, "_toolbar_scroll", None)
+        if scroll is None:
+            return
+        bar = scroll.horizontalScrollBar()
+        if bar is None:
+            return
+        bar.setValue(bar.value() + int(delta))
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        if getattr(self, "_toolbar_scroll", None) is not None and (
+            obj is self._toolbar_scroll or obj is self._toolbar_scroll.viewport()
+        ):
+            if event.type() == QtCore.QEvent.Type.Wheel and isinstance(event, QtGui.QWheelEvent):
+                self._scroll_toolbar(-event.angleDelta().y())
+                return True
+        return super().eventFilter(obj, event)
 
     def _sync_state(self) -> None:
         has_patient = self.patient_id is not None and self.patient_gender in ("муж", "жен")
@@ -227,7 +306,7 @@ class ProtocolArea(QtWidgets.QWidget):
             patient_id=int(self.patient_id),
             study_type_id=int(study_id),
             doctor_id=int(self.doctor_id),
-            device_id=int(self.device_id),
+            device_id=None,
             institution_id=int(self.institution_id),
             values={},
             finalize=False,
@@ -272,7 +351,7 @@ class ProtocolArea(QtWidgets.QWidget):
     def open_saved_protocol(self, *, protocol_id: int, study_type_id: int) -> None:
         """
         Открыть сохранённый протокол в правом блоке (по ТЗ: при выборе в списке слева).
-        Режим просмотра: изменения запрещены.
+        Режим редактирования: изменения разрешены.
         """
         self.error.setText("")
         if not self.patient_id or self.patient_gender not in ("муж", "жен"):
@@ -292,9 +371,9 @@ class ProtocolArea(QtWidgets.QWidget):
             patient_gender=str(self.patient_gender),
             study_type_id=int(study_type_id) if study_type_id else int(self.study_combo.currentData() or 0),
             protocol_id=int(protocol_id),
-            read_only=True,
+            read_only=False,
         )
-        self._builder_read_only = True
+        self._builder_read_only = False
 
         try:
             widget = self._builder.build()
@@ -354,7 +433,7 @@ class ProtocolArea(QtWidgets.QWidget):
             patient_id=int(self.patient_id),
             study_type_id=int(self._builder.study_type_id),
             doctor_id=int(self.doctor_id),
-            device_id=int(self.device_id),
+            device_id=None,
             institution_id=int(self.institution_id),
             values=values,
             finalize=False,
@@ -383,7 +462,7 @@ class ProtocolArea(QtWidgets.QWidget):
             patient_id=int(self.patient_id),
             study_type_id=int(self._builder.study_type_id),
             doctor_id=int(self.doctor_id),
-            device_id=int(self.device_id),
+            device_id=None,
             institution_id=int(self.institution_id),
             values=values,
             finalize=True,
@@ -396,7 +475,6 @@ class ProtocolArea(QtWidgets.QWidget):
             patient_id=int(self.patient_id),
             study_type_id=int(self._builder.study_type_id),
             doctor_id=int(self.doctor_id),
-            device_id=int(self.device_id),
             builder=self._builder,
             study_name=self.study_combo.currentText(),
             protocol_id=pid,
@@ -407,6 +485,7 @@ class ProtocolArea(QtWidgets.QWidget):
 
     @QtCore.Slot()
     def _open_settings(self) -> None:
-        dlg = SettingsStructureDialog(parent=self)
-        dlg.changed.connect(self._load_studies)
+        dlg = SettingsDialog(parent=self)
         dlg.exec()
+        # после закрытия настроек обновим список исследований (могли поменять активность/названия/порядок)
+        self._load_studies()

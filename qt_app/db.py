@@ -1,44 +1,27 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
-import shutil
 
 from .paths import db_path
-from .migrations import run_migrations
 
 
 def ensure_db_initialized() -> Path:
     """
     Гарантирует, что SQLite файл существует.
-    Если базы нет — создаёт новую и применяет миграции.
+    Если базы нет — создаёт новую.
+    Важно: никаких миграций/авто-обновлений существующей БД не выполняем.
     """
     path = db_path()
     if path.exists():
-        # ensure migrations for existing DB
-        with sqlite3.connect(str(path)) as conn:
-            run_migrations(conn)
         return path
 
     # Создаём папку данных
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Миграция со старой структуры репозитория (если файл БД был внутри проекта)
-    legacy_db = Path(__file__).resolve().parent.parent / "UltrasoundProtocolSystem" / "uzi_protocols.db"
-    if legacy_db.exists():
-        try:
-            shutil.copy2(legacy_db, path)
-        except Exception:
-            # если не получилось скопировать — просто создадим новую
-            pass
-
-    if not path.exists():
-        with sqlite3.connect(str(path)) as conn:
-            _init_schema(conn)
-
-    # migrations
     with sqlite3.connect(str(path)) as conn:
-        run_migrations(conn)
+        _init_schema(conn)
 
     return path
 
@@ -47,7 +30,6 @@ def connect() -> sqlite3.Connection:
     path = ensure_db_initialized()
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
-    run_migrations(conn)
     return conn
 
 
@@ -233,6 +215,22 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (study_type_id) REFERENCES study_types (id),
             UNIQUE(study_type_id)
+        )
+        """
+    )
+
+    # Новая таблица вариантов шаблонов (signed/unsigned) — нужна для текущего кода печати.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS study_template_variants (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          study_type_id INTEGER NOT NULL,
+          variant TEXT NOT NULL CHECK(variant IN ('signed', 'unsigned')),
+          template_name TEXT,
+          template_content TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (study_type_id) REFERENCES study_types (id),
+          UNIQUE(study_type_id, variant)
         )
         """
     )

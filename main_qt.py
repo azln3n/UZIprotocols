@@ -24,9 +24,8 @@ def main() -> int:
 
         inst_id = int(login.institution_combo.currentData())
         doc_id = int(login.doctor_combo.currentData())
-        dev_id = int(login.device_combo.currentData())
 
-        window = MainWindow(Session(inst_id, doc_id, dev_id))
+        window = MainWindow(Session(inst_id, doc_id))
         logout = {"flag": False}
 
         def _on_logout():
@@ -35,7 +34,6 @@ def main() -> int:
         window.logout_requested.connect(_on_logout)
         window.show()
 
-        # Run nested event loop until window closes
         window.destroyed.connect(lambda: app.quit() if not logout["flag"] else None)
         app.exec()
 

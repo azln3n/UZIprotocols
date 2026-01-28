@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
-from ..repo import list_study_types, search_protocol_patient_ids
+from ..repo import list_study_types, search_protocol_patient_ids, search_patient_ids_by_fields
+from .auto_combo import AutoComboBox
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,10 @@ class SearchDialog(QtWidgets.QDialog):
 
         grid.addWidget(QtWidgets.QLabel("ИИН:"), 0, 2)
         self.iin = QtWidgets.QLineEdit()
+        self.iin.setMaxLength(12)
+        rx = QtCore.QRegularExpression(r"^\d{0,12}$")
+        self.iin.setValidator(QtGui.QRegularExpressionValidator(rx, self.iin))
+        self.iin.setInputMethodHints(QtCore.Qt.InputMethodHint.ImhDigitsOnly)
         grid.addWidget(self.iin, 0, 3)
 
         # "Период" показываем один раз (без дубляжа)
@@ -63,7 +68,7 @@ class SearchDialog(QtWidgets.QDialog):
         grid.addWidget(self.date_to, 1, 3)
 
         grid.addWidget(QtWidgets.QLabel("Тип исследования:"), 2, 0)
-        self.study = QtWidgets.QComboBox()
+        self.study = AutoComboBox(max_popup_items=30)
         self.study.setMinimumWidth(260)
         self.study.addItem("Все", None)
         for it in list_study_types():
@@ -134,14 +139,20 @@ class SearchDialog(QtWidgets.QDialog):
                 self.info.setText("Период: дата 'с' не может быть больше даты 'по'.")
                 return
 
-        ids = search_protocol_patient_ids(
-            institution_id=self.institution_id,
-            fio=fio,
-            iin=iin,
-            date_from=df.isoformat() if df else None,
-            date_to=dt.isoformat() if dt else None,
-            study_type_id=int(st_id) if st_id else None,
-        )
+        # По требованию: искать и по пациентам без протоколов.
+        # - Если задан период или тип исследования — это фильтр по протоколам.
+        # - Иначе ищем по таблице пациентов.
+        if df or dt or st_id:
+            ids = search_protocol_patient_ids(
+                institution_id=self.institution_id,
+                fio=fio,
+                iin=iin,
+                date_from=df.isoformat() if df else None,
+                date_to=dt.isoformat() if dt else None,
+                study_type_id=int(st_id) if st_id else None,
+            )
+        else:
+            ids = search_patient_ids_by_fields(institution_id=self.institution_id, fio=fio, iin=iin)
         self.result = SearchResult(patient_ids=ids)
         self.accept()
 

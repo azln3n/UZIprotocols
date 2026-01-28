@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 from .db import connect
 
@@ -200,6 +201,31 @@ def search_patient_ids(institution_id: int, query: str) -> list[int]:
     return out
 
 
+def search_patient_ids_by_fields(*, institution_id: int, fio: str = "", iin: str = "") -> list[int]:
+    """
+    Поиск по всем пациентам (включая тех, у кого нет протоколов).
+    Если заполнены оба поля (ФИО и ИИН) — применяем оба фильтра (AND).
+    """
+    fio_q = (fio or "").strip().casefold()
+    iin_q = re.sub(r"\D", "", (iin or "").strip())
+
+    if not fio_q and not iin_q:
+        return []
+
+    items = list_patients_for_institution(int(institution_id), limit=5000)
+    out: list[int] = []
+    for p in items:
+        name_ok = True
+        iin_ok = True
+        if fio_q:
+            name_ok = fio_q in (p.full_name or "").casefold()
+        if iin_q:
+            iin_ok = bool(p.iin) and iin_q in str(p.iin)
+        if name_ok and iin_ok:
+            out.append(int(p.id))
+    return out
+
+
 def search_protocol_patient_ids(
     *,
     institution_id: int,
@@ -289,6 +315,18 @@ def list_protocols_for_patient(patient_id: int) -> list[ProtocolListItem]:
         )
         for r in rows
     ]
+
+
+def delete_protocol(protocol_id: int) -> None:
+    """
+    Каскадное удаление протокола: сначала значения, затем сам протокол.
+    """
+    with connect() as conn:
+        cur = conn.cursor()
+        pid = int(protocol_id)
+        cur.execute("DELETE FROM protocol_values WHERE protocol_id = ?", (pid,))
+        cur.execute("DELETE FROM protocols WHERE id = ?", (pid,))
+        conn.commit()
 
 
 def get_protocol_meta(protocol_id: int) -> dict | None:
@@ -482,7 +520,18 @@ def delete_study_type(study_type_id: int) -> None:
         cur = conn.cursor()
         st_id = int(study_type_id)
 
-        # Каскадное удаление по просьбе: можно удалять тип исследования независимо от структуры.
+        cnt = cur.execute(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM groups g
+            JOIN tabs t ON t.id = g.tab_id
+            WHERE t.study_type_id = ?
+            """,
+            (st_id,),
+        ).fetchone()
+        if cnt and int(cnt["cnt"]) > 0:
+            raise ValueError("Исследование невозможно удалить. Сначала удалите группы и поля.")
+
         # Чтобы не оставлять "битые" ссылки — удаляем также протоколы этого типа и их значения.
         prot_ids = [
             int(r["id"])
@@ -697,7 +746,7 @@ def delete_group(group_id: int) -> None:
         cur = conn.cursor()
         cnt = cur.execute("SELECT COUNT(*) FROM fields WHERE group_id = ?", (int(group_id),)).fetchone()[0]
         if int(cnt) > 0:
-            raise ValueError("Нельзя удалить группу: сначала удалите поля.")
+            raise ValueError("Нельзя удалить группу: сначала удалите поля данной группы.")
         cur.execute("DELETE FROM groups WHERE id = ?", (int(group_id),))
         conn.commit()
 
@@ -853,6 +902,28 @@ def update_field(
     hidden_trigger_value: str | None,
 ) -> None:
     with connect() as conn:
+        cur = conn.cursor()
+        row = cur.execute(
+            "SELECT group_id, column_num, display_order FROM fields WHERE id = ?",
+            (int(field_id),),
+        ).fetchone()
+        if row:
+            group_id = int(row["group_id"])
+            current_col = int(row["column_num"] or 1)
+            current_order = int(row["display_order"] or 0)
+        else:
+            group_id = None
+            current_col = int(column_num)
+            current_order = 0
+
+        new_order = current_order
+        if group_id is not None and int(column_num) != current_col:
+            max_order = cur.execute(
+                "SELECT COALESCE(MAX(display_order), 0) FROM fields WHERE group_id = ? AND column_num = ?",
+                (group_id, int(column_num)),
+            ).fetchone()[0]
+            new_order = int(max_order) + 1
+
         conn.execute(
             """
             UPDATE fields SET
@@ -860,6 +931,7 @@ def update_field(
               template_tag = ?,
               field_type = ?,
               column_num = ?,
+              display_order = ?,
               precision = ?,
               reference_male_min = ?,
               reference_male_max = ?,
@@ -879,6 +951,7 @@ def update_field(
                 template_tag,
                 field_type,
                 int(column_num),
+                int(new_order),
                 precision,
                 reference_male_min,
                 reference_male_max,
@@ -1041,7 +1114,7 @@ def save_protocol(
     patient_id: int,
     study_type_id: int,
     doctor_id: int,
-    device_id: int,
+    device_id: int | None,
     institution_id: int,
     values: dict[int, str],
     finalize: bool = False,
@@ -1071,7 +1144,15 @@ def save_protocol(
                   (patient_id, study_type_id, doctor_id, device_id, institution_id, created_at, finished_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (patient_id, study_type_id, doctor_id, device_id, institution_id, now, now if finalize else None),
+                (
+                    patient_id,
+                    study_type_id,
+                    doctor_id,
+                    device_id,
+                    institution_id,
+                    now,
+                    now if finalize else None,
+                ),
             )
             pid = int(cur.lastrowid)
 

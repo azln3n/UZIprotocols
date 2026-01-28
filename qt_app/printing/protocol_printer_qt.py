@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import calendar
+import base64
+import os
 import re
+import subprocess
 import webbrowser
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,6 +16,8 @@ from ..db import connect
 from ..paths import protocols_dir, protocols_templates_dir
 from ..repo import get_study_template_variant, upsert_study_template_variant
 from ..ui.protocol_builder_qt import ProtocolBuilderQt
+from ..utils.open_external import open_in_os
+from ..utils.app_settings import load_print_ui_settings, save_print_ui_settings, PrintUiSettings
 
 TEMPLATE_MULTI_DELIM = " | "
 
@@ -26,20 +31,45 @@ class ProtocolPrinterQt:
     def __init__(self, parent: QtWidgets.QWidget | None = None):
         self.parent = parent
 
+    def _downloads_dir(self) -> Path:
+        """
+        По требованию: сохранять печатные файлы в папку "Загрузки" пользователя.
+        В Windows физическая папка чаще всего называется 'Downloads' (даже при русской локали),
+        но UI показывает "Загрузки". Пытаемся оба варианта.
+        """
+        home = Path(os.environ.get("USERPROFILE") or str(Path.home()))
+        candidates = [home / "Downloads", home / "Загрузки"]
+        for c in candidates:
+            if c.exists():
+                return c
+        return candidates[0]
+
+    def _build_output_base_name(self, *, patient_id: int, protocol_id: int | None) -> str:
+        """
+        Формат имени по требованию: ФИО + дата.
+        Добавляем время, чтобы не затирать файлы при повторной печати в один день.
+        """
+        patient_name = self._get_patient_name(patient_id)
+        safe_name = re.sub(r'[<>:"/\\\\|?*]', "_", patient_name or "Неизвестный")
+        safe_name = re.sub(r"\s+", " ", safe_name).strip()
+        dt = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+        # protocol_id не включаем в имя, чтобы соответствовать формату "ФИО + дата"
+        return f"{safe_name}_{dt}"
+
     def print_current(
         self,
         *,
         patient_id: int,
         study_type_id: int,
         doctor_id: int,
-        device_id: int,
         builder: ProtocolBuilderQt,
         study_name: str | None = None,
         protocol_id: int | None = None,
     ) -> bool:
-        variant = self._ask_print_options()
-        if not variant:
+        req = self._ask_print_request()
+        if not req:
             return False
+        fmt, variant = req
 
         choice = self._choose_template(study_type_id, variant)
         if choice is None:
@@ -53,7 +83,6 @@ class ProtocolPrinterQt:
             patient_id=patient_id,
             study_type_id=study_type_id,
             doctor_id=doctor_id,
-            device_id=device_id,
             builder=builder,
             study_name=study_name,
         )
@@ -61,12 +90,15 @@ class ProtocolPrinterQt:
         data["@PrintVariant"] = variant
 
         html = self._replace_template_variables(template_content, data)
+        if fmt == "word":
+            return self._save_and_open_word_doc_from_html(html, patient_id=patient_id, protocol_id=protocol_id)
         return self._save_and_open_for_print(html, patient_id=patient_id, protocol_id=protocol_id)
 
     def print_saved(self, *, protocol_id: int) -> bool:
-        variant = self._ask_print_options()
-        if not variant:
+        req = self._ask_print_request()
+        if not req:
             return False
+        fmt, variant = req
 
         meta = self._get_protocol_data_by_id(protocol_id)
         if not meta:
@@ -87,6 +119,8 @@ class ProtocolPrinterQt:
         data = self._prepare_replacement_data_for_saved_protocol(protocol_id)
         data["@PrintVariant"] = variant
         html = self._replace_template_variables(template_content, data)
+        if fmt == "word":
+            return self._save_and_open_word_doc_from_html(html, patient_id=patient_id, protocol_id=protocol_id)
         return self._save_and_open_for_print(html, patient_id=patient_id, protocol_id=protocol_id)
 
     # -------------------- Template selection --------------------
@@ -190,7 +224,6 @@ class ProtocolPrinterQt:
         patient_id: int,
         study_type_id: int,
         doctor_id: int,
-        device_id: int,
         builder: ProtocolBuilderQt,
         study_name: str | None,
     ) -> dict[str, str]:
@@ -201,14 +234,15 @@ class ProtocolPrinterQt:
             cur.execute(
                 """
                 SELECT p.full_name, p.iin, p.birth_date, p.gender,
-                       i.name as institution, d.full_name as doctor, dev.name as device
+                       i.name as institution, d.full_name as doctor,
+                       ac.name as admission_channel
                 FROM patients p
                 LEFT JOIN institutions i ON p.institution_id = i.id
                 LEFT JOIN doctors d ON d.id = ?
-                LEFT JOIN devices dev ON dev.id = ?
+                LEFT JOIN admission_channels ac ON p.admission_channel_id = ac.id
                 WHERE p.id = ?
                 """,
-                (doctor_id, device_id, patient_id),
+                (doctor_id, patient_id),
             )
             row = cur.fetchone()
 
@@ -217,22 +251,35 @@ class ProtocolPrinterQt:
                 data["@PoliceNumber"] = row["iin"] or ""
                 data["@Birthday"] = row["birth_date"] or ""
                 data["@ProtocolPol"] = row["gender"] or ""
-                data["@UZ_skaner"] = row["device"] or ""
-                data["@Datchik"] = row["device"] or ""
+                data["@Institution"] = row["institution"] or ""
+                data["@AdmissionChannel"] = row["admission_channel"] or ""
+                data["@Channel"] = row["admission_channel"] or ""
+                # Аппарат выбирается внутри HTML-шаблона (по договорённости), поэтому здесь оставляем пустым.
+                data["@UZ_skaner"] = ""
+                data["@Datchik"] = ""
 
                 # Age calc (same idea as Tkinter printer)
                 if row["birth_date"]:
                     birth_date = datetime.strptime(str(row["birth_date"]), "%Y-%m-%d")
                     now = datetime.now()
                     years, months, days = self._age_parts(birth_date, now)
-                    data["@Vozrast"] = str(years)
+                    age_word = self._decline_years(years)
+                    data["@Vozrast"] = f"{years} {age_word}, {months} мес, {days} дн"
+                    data["@Years"] = str(years)
                     data["@Months"] = str(months)
                     data["@Days"] = str(days)
-                    data["@AgeWord"] = self._decline_years(years)
+                    data["@years"] = str(years)
+                    data["@months"] = str(months)
+                    data["@days"] = str(days)
+                    data["@AgeWord"] = age_word
                 else:
                     data["@Vozrast"] = ""
+                    data["@Years"] = ""
                     data["@Months"] = ""
                     data["@Days"] = ""
+                    data["@years"] = ""
+                    data["@months"] = ""
+                    data["@days"] = ""
                     data["@AgeWord"] = ""
 
             # Field mapping for this study
@@ -302,14 +349,15 @@ class ProtocolPrinterQt:
                 SELECT
                     p.full_name, p.iin, p.birth_date, p.gender,
                     i.name as institution, d.full_name as doctor,
-                    dev.name as device, st.name as study_type,
+                    ac.name as admission_channel,
+                    st.name as study_type,
                     pr.created_at, pr.finished_at,
                     p.id as patient_id, pr.study_type_id
                 FROM protocols pr
                 JOIN patients p ON pr.patient_id = p.id
                 JOIN institutions i ON pr.institution_id = i.id
                 LEFT JOIN doctors d ON pr.doctor_id = d.id
-                LEFT JOIN devices dev ON pr.device_id = dev.id
+                LEFT JOIN admission_channels ac ON p.admission_channel_id = ac.id
                 JOIN study_types st ON pr.study_type_id = st.id
                 WHERE pr.id = ?
                 """,
@@ -324,8 +372,11 @@ class ProtocolPrinterQt:
             data["@PoliceNumber"] = pr["iin"] or ""
             data["@Birthday"] = pr["birth_date"] or ""
             data["@ProtocolPol"] = pr["gender"] or ""
-            data["@UZ_skaner"] = pr["device"] or ""
-            data["@Datchik"] = pr["device"] or ""
+            data["@Institution"] = pr["institution"] or ""
+            data["@AdmissionChannel"] = pr["admission_channel"] or ""
+            data["@Channel"] = pr["admission_channel"] or ""
+            data["@UZ_skaner"] = ""
+            data["@Datchik"] = ""
             data["@StudyType"] = pr["study_type"] or ""
             data["@DoctorName"] = pr["doctor"] or ""
 
@@ -333,14 +384,23 @@ class ProtocolPrinterQt:
                 birth_date = datetime.strptime(str(pr["birth_date"]), "%Y-%m-%d")
                 now = datetime.now()
                 years, months, days = self._age_parts(birth_date, now)
-                data["@Vozrast"] = str(years)
+                age_word = self._decline_years(years)
+                data["@Vozrast"] = f"{years} {age_word}, {months} мес, {days} дн"
+                data["@Years"] = str(years)
                 data["@Months"] = str(months)
                 data["@Days"] = str(days)
-                data["@AgeWord"] = self._decline_years(years)
+                data["@years"] = str(years)
+                data["@months"] = str(months)
+                data["@days"] = str(days)
+                data["@AgeWord"] = age_word
             else:
                 data["@Vozrast"] = ""
+                data["@Years"] = ""
                 data["@Months"] = ""
                 data["@Days"] = ""
+                data["@years"] = ""
+                data["@months"] = ""
+                data["@days"] = ""
                 data["@AgeWord"] = ""
 
             # Protocol date/time from created_at if possible
@@ -396,34 +456,32 @@ class ProtocolPrinterQt:
         return re.sub(variable_pattern, repl, template_content)
 
     def _save_and_open_for_print(self, html_content: str, *, patient_id: int, protocol_id: int | None) -> bool:
-        patient_name = self._get_patient_name(patient_id)
-        safe_name = re.sub(r'[<>:"/\\\\|?*]', "_", patient_name or "Неизвестный")
-        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        base = f"Протокол_{protocol_id}_{safe_name}_{date_str}" if protocol_id else f"Протокол_{safe_name}_{date_str}"
-        root = protocols_dir()
-        day_dir = root / datetime.now().strftime("%Y-%m-%d")
-        (root / "templates").mkdir(parents=True, exist_ok=True)
-        day_dir.mkdir(parents=True, exist_ok=True)
-        out_file = day_dir / f"{base}.html"
+        out_dir = self._downloads_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        base = self._build_output_base_name(patient_id=patient_id, protocol_id=protocol_id)
+        out_file = out_dir / f"{base}.html"
 
         html_with_meta = self._normalize_html_for_local_assets(html_content)
 
         out_file.write_text(html_with_meta, encoding="utf-8")
         webbrowser.open(out_file.as_uri())
+        return True
 
-        QtWidgets.QMessageBox.information(
-            self.parent,
-            "Печать",
-            "Протокол открыт в браузере.\n\n"
-            "Для печати:\n"
-            "1) Нажмите Ctrl+P\n"
-            "2) Выберите принтер\n"
-            "3) Нажмите «Печать»\n\n"
-            "Файл сохранён:\n"
-            f"{out_file}\n\n"
-            "Шаблоны/фото держите в папке:\n"
-            f"{(protocols_dir() / 'templates')}",
-        )
+    def _save_and_open_word_doc_from_html(self, html_content: str, *, patient_id: int, protocol_id: int | None) -> bool:
+        """
+        По требованию: "Word" должен быть редактируемым и без заметной задержки.
+        Самый быстрый вариант — сохранить HTML как .doc (Word понимает HTML внутри .doc)
+        и открыть файл.
+        """
+        out_dir = self._downloads_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        base = self._build_output_base_name(patient_id=patient_id, protocol_id=protocol_id)
+        doc_file = out_dir / f"{base}.doc"
+
+        html_for_word = self._normalize_html_for_word_assets(html_content)
+        doc_file.write_text(html_for_word, encoding="utf-8", errors="replace")
+        open_in_os(doc_file)
         return True
 
     def _normalize_html_for_local_assets(self, html_content: str) -> str:
@@ -460,27 +518,136 @@ class ProtocolPrinterQt:
 
         return html
 
-    def _ask_print_options(self) -> str | None:
+    def _normalize_html_for_word_assets(self, html_content: str) -> str:
+        """
+        Для импорта Word лучше, когда все ассеты (img/css) имеют абсолютные file:// URI.
+        """
+        html = self._normalize_html_for_local_assets(html_content)
+
+        base_dir = protocols_templates_dir().resolve()
+        base_uri = base_dir.as_uri()
+        if not base_uri.endswith("/"):
+            base_uri += "/"
+
+        def _to_abs_uri(rel: str) -> str:
+            rel = rel.strip()
+            if not rel:
+                return rel
+            low = rel.lower()
+            if low.startswith(("http://", "https://", "file://")):
+                return rel
+            if re.match(r"^[a-zA-Z]:[\\\\/]", rel):
+                # absolute windows path
+                try:
+                    return Path(rel).resolve().as_uri()
+                except Exception:
+                    return rel
+            # treat as path relative to templates/
+            try:
+                return (base_dir / rel).resolve().as_uri()
+            except Exception:
+                return base_uri + rel.lstrip("/").lstrip("\\")
+
+        def _rewrite_attr(m: re.Match) -> str:
+            prefix = m.group(1)
+            val = m.group(2)
+            suffix = m.group(3)
+            # already absolute or data
+            if val.strip().lower().startswith(("http://", "https://", "file://", "data:")):
+                return m.group(0)
+            return f"{prefix}{_to_abs_uri(val)}{suffix}"
+
+        # rewrite src/href="..."; keep quotes
+        html = re.sub(r'((?:src|href)\s*=\s*["\'])([^"\']+)(["\'])', _rewrite_attr, html, flags=re.IGNORECASE)
+        return html
+
+    def _convert_html_to_docx_windows(self, html_path: Path, docx_path: Path) -> bool:
+        if os.name != "nt":
+            return False
+        try:
+            htmlp = str(html_path.resolve())
+            docxp = str(docx_path.resolve())
+        except Exception:
+            return False
+
+        # Use PowerShell + Word COM automation; pass Unicode safely via -EncodedCommand (UTF-16LE).
+        # 16 = wdFormatDocumentDefault (DOCX)
+        ps = f"""
+$ErrorActionPreference = 'Stop'
+$html = '{htmlp.replace("'", "''")}'
+$docx = '{docxp.replace("'", "''")}'
+$word = $null
+$doc = $null
+try {{
+  $word = New-Object -ComObject Word.Application
+  $word.Visible = $false
+  $doc = $word.Documents.Open($html, $false, $true)
+  $doc.SaveAs([ref]$docx, [ref]16)
+}} finally {{
+  if ($doc -ne $null) {{ $doc.Close($false) | Out-Null }}
+  if ($word -ne $null) {{ $word.Quit() | Out-Null }}
+}}
+"""
+        encoded = base64.b64encode(ps.encode("utf-16le")).decode("ascii")
+        try:
+            res = subprocess.run(
+                ["powershell", "-NoProfile", "-EncodedCommand", encoded],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            return res.returncode == 0
+        except Exception:
+            return False
+
+    def _ask_print_request(self) -> tuple[str, str] | None:
         dlg = QtWidgets.QDialog(self.parent)
         dlg.setWindowTitle("Печать протокола")
         dlg.setModal(True)
+
+        ui_cfg = load_print_ui_settings()
 
         layout = QtWidgets.QVBoxLayout(dlg)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
 
-        layout.addWidget(QtWidgets.QLabel("Выберите вариант:"))
+        layout.addWidget(QtWidgets.QLabel("Выберите вариант и формат:"))
 
+        grid = QtWidgets.QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(8)
+
+        # Variant (по требованию: нужен и для Word)
         variant_group = QtWidgets.QGroupBox("Вариант")
         vg = QtWidgets.QVBoxLayout(variant_group)
-        rb_signed = QtWidgets.QRadioButton("С подписью")
         rb_unsigned = QtWidgets.QRadioButton("Без подписи")
-        rb_unsigned.setChecked(True)
+        rb_signed = QtWidgets.QRadioButton("С подписью")
+        rb_signed.setChecked(ui_cfg.default_variant == "signed")
+        rb_unsigned.setChecked(ui_cfg.default_variant != "signed")
         vg.addWidget(rb_unsigned)
         vg.addWidget(rb_signed)
-        layout.addWidget(variant_group)
+        grid.addWidget(variant_group, 0, 0)
 
-        note = QtWidgets.QLabel("Формат: HTML (откроется в браузере). Печать: Ctrl+P.")
+        # Format
+        fmt_group = QtWidgets.QGroupBox("Формат")
+        fg = QtWidgets.QVBoxLayout(fmt_group)
+        rb_html = QtWidgets.QRadioButton("В формате HTML")
+        rb_word = QtWidgets.QRadioButton("В формате Word")
+        rb_html.setChecked(ui_cfg.default_format == "html")
+        rb_word.setChecked(ui_cfg.default_format == "word")
+        # если в настройках был устаревший 'pdf' — по умолчанию выбираем HTML
+        if not rb_html.isChecked() and not rb_word.isChecked():
+            rb_html.setChecked(True)
+        fg.addWidget(rb_html)
+        fg.addWidget(rb_word)
+        grid.addWidget(fmt_group, 0, 1)
+
+        layout.addLayout(grid)
+
+        note = QtWidgets.QLabel(
+            "HTML: откроется в браузере (печать: Ctrl+P).\n"
+            "Word: будет сохранён редактируемый документ и открыт."
+        )
         note.setStyleSheet("color: #333;")
         layout.addWidget(note)
 
@@ -497,7 +664,14 @@ class ProtocolPrinterQt:
         if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return None
 
-        return "signed" if rb_signed.isChecked() else "unsigned"
+        fmt = "html"
+        if rb_word.isChecked():
+            fmt = "word"
+        variant = "signed" if rb_signed.isChecked() else "unsigned"
+
+        # remember user choice
+        save_print_ui_settings(PrintUiSettings(default_format=fmt, default_variant=variant))
+        return fmt, variant
 
     # -------------------- Helpers --------------------
 

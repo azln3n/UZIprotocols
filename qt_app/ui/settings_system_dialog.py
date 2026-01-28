@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 from ..db import connect
+from .auto_combo import AutoComboBox
 
 
 class SettingsSystemDialog(QtWidgets.QDialog):
@@ -34,11 +35,6 @@ class SettingsSystemDialog(QtWidgets.QDialog):
         self.doc_page = QtWidgets.QWidget()
         self.tabs.addTab(self.doc_page, "Врачи")
         self._build_doctors_tab()
-
-        # Devices
-        self.dev_page = QtWidgets.QWidget()
-        self.tabs.addTab(self.dev_page, "Аппараты")
-        self._build_devices_tab()
 
         footer = QtWidgets.QHBoxLayout()
         footer.addStretch(1)
@@ -106,6 +102,8 @@ class SettingsSystemDialog(QtWidgets.QDialog):
     def _ask_name_active(self, *, title: str, name: str = "", active: bool = True) -> tuple[str, bool] | None:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle(title)
+        # По замечанию: сделать окно шире, чтобы подписи/значения помещались
+        dlg.setMinimumWidth(420)
         layout = QtWidgets.QVBoxLayout(dlg)
         form = QtWidgets.QFormLayout()
         name_edit = QtWidgets.QLineEdit(name)
@@ -184,7 +182,7 @@ class SettingsSystemDialog(QtWidgets.QDialog):
 
         top = QtWidgets.QHBoxLayout()
         top.addWidget(QtWidgets.QLabel("Учреждение:"))
-        self.doc_inst_filter = QtWidgets.QComboBox()
+        self.doc_inst_filter = AutoComboBox(max_popup_items=30)
         self.doc_inst_filter.currentIndexChanged.connect(self._load_doctors)
         top.addWidget(self.doc_inst_filter, 1)
         layout.addLayout(top)
@@ -250,6 +248,8 @@ class SettingsSystemDialog(QtWidgets.QDialog):
     def _ask_doctor(self, *, title: str, name: str = "", active: bool = True) -> tuple[str, bool] | None:
         dlg = QtWidgets.QDialog(self)
         dlg.setWindowTitle(title)
+        # По замечанию: сделать окно шире, чтобы подписи/значения помещались
+        dlg.setMinimumWidth(420)
         layout = QtWidgets.QVBoxLayout(dlg)
         form = QtWidgets.QFormLayout()
         name_edit = QtWidgets.QLineEdit(name)
@@ -318,121 +318,10 @@ class SettingsSystemDialog(QtWidgets.QDialog):
             conn.commit()
         self._load_all()
 
-    # ---------- Devices ----------
-    def _build_devices_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.dev_page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-
-        top = QtWidgets.QHBoxLayout()
-        top.addWidget(QtWidgets.QLabel("Учреждение:"))
-        self.dev_inst_filter = QtWidgets.QComboBox()
-        self.dev_inst_filter.currentIndexChanged.connect(self._load_devices)
-        top.addWidget(self.dev_inst_filter, 1)
-        layout.addLayout(top)
-
-        btns = QtWidgets.QHBoxLayout()
-        add = QtWidgets.QPushButton("Добавить")
-        edit = QtWidgets.QPushButton("Изменить")
-        delete = QtWidgets.QPushButton("Удалить")
-        add.clicked.connect(self._add_device)
-        edit.clicked.connect(self._edit_device)
-        delete.clicked.connect(self._delete_device)
-        btns.addWidget(add)
-        btns.addWidget(edit)
-        btns.addWidget(delete)
-        btns.addStretch(1)
-        layout.addLayout(btns)
-
-        self.dev_table = QtWidgets.QTableWidget(0, 4)
-        self.dev_table.setHorizontalHeaderLabels(["ID", "Название", "Учреждение", "Активен"])
-        self.dev_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-        self.dev_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.dev_table.horizontalHeader().setStretchLastSection(True)
-        self.dev_table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.dev_table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        self.dev_table.horizontalHeader().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        self.dev_table.horizontalHeader().setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        layout.addWidget(self.dev_table, 1)
-
-    def _load_devices(self) -> None:
-        inst_id = self.dev_inst_filter.currentData()
-        if not inst_id:
-            self.dev_table.setRowCount(0)
-            return
-        with connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT d.id, d.name, i.name AS inst_name, d.is_active
-                FROM devices d
-                LEFT JOIN institutions i ON i.id = d.institution_id
-                WHERE d.institution_id = ?
-                ORDER BY d.name
-                """,
-                (int(inst_id),),
-            ).fetchall()
-        self.dev_table.setRowCount(0)
-        for r in rows:
-            row = self.dev_table.rowCount()
-            self.dev_table.insertRow(row)
-            self.dev_table.setItem(row, 0, QtWidgets.QTableWidgetItem(str(r["id"])))
-            self.dev_table.setItem(row, 1, QtWidgets.QTableWidgetItem(str(r["name"])))
-            self.dev_table.setItem(row, 2, QtWidgets.QTableWidgetItem(str(r["inst_name"] or "")))
-            self.dev_table.setItem(row, 3, QtWidgets.QTableWidgetItem("Да" if r["is_active"] else "Нет"))
-
-    def _ask_device(self, *, title: str, name: str = "", active: bool = True) -> tuple[str, bool] | None:
-        return self._ask_name_active(title=title, name=name, active=active)
-
-    def _add_device(self) -> None:
-        inst_id = self.dev_inst_filter.currentData()
-        if not inst_id:
-            return
-        res = self._ask_device(title="Добавить аппарат")
-        if not res:
-            return
-        name, active = res
-        with connect() as conn:
-            conn.execute(
-                "INSERT INTO devices (name, institution_id, is_active) VALUES (?, ?, ?)",
-                (name, int(inst_id), 1 if active else 0),
-            )
-            conn.commit()
-        self._load_all()
-
-    def _edit_device(self) -> None:
-        dev_id = self._selected_id(self.dev_table)
-        if not dev_id:
-            return
-        with connect() as conn:
-            row = conn.execute("SELECT name, is_active FROM devices WHERE id = ?", (dev_id,)).fetchone()
-        if not row:
-            return
-        res = self._ask_device(title="Изменить аппарат", name=str(row["name"]), active=bool(row["is_active"]))
-        if not res:
-            return
-        name, active = res
-        with connect() as conn:
-            conn.execute("UPDATE devices SET name = ?, is_active = ? WHERE id = ?", (name, 1 if active else 0, dev_id))
-            conn.commit()
-        self._load_all()
-
-    def _delete_device(self) -> None:
-        dev_id = self._selected_id(self.dev_table)
-        if not dev_id:
-            return
-        if QtWidgets.QMessageBox.question(self, "Удалить", "Удалить выбранный аппарат?") != QtWidgets.QMessageBox.StandardButton.Yes:
-            return
-        with connect() as conn:
-            conn.execute("DELETE FROM devices WHERE id = ?", (dev_id,))
-            conn.commit()
-        self._load_all()
-
     # ---------- All ----------
     def _load_all(self) -> None:
         self._load_institutions()
         self._load_institution_combo(self.doc_inst_filter)
-        self._load_institution_combo(self.dev_inst_filter)
         self._load_doctors()
-        self._load_devices()
         self.changed.emit()
 
