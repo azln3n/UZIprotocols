@@ -67,7 +67,6 @@ class PatientDialog(QtWidgets.QDialog):
 
         self._channel_items: list[ComboItem] = []
         self._combo_popup_targets: set[QtWidgets.QComboBox] = set()
-        self._birth_editing = False
 
         self._build_ui()
         self._load_channels()
@@ -183,13 +182,14 @@ class PatientDialog(QtWidgets.QDialog):
         self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
         self.birth_date.setSpecialValueText("ДД.ММ.ГГГГ")
         self.birth_date.setDate(self._birth_min_date)
+        # Важно: не применять "частичные" значения во время набора (иначе возможны странные артефакты
+        # при открытом календаре на некоторых Windows-сборках).
+        self.birth_date.setKeyboardTracking(False)
         self.birth_date.dateChanged.connect(lambda _d: (self._refresh_age(), self._refresh_save_state()))
+        # Не трогаем lineEdit() валидатором: у QDateEdit есть свой встроенный валидатор/парсер.
+        # Подмена валидатора ломает ввод и может приводить к значениям вида -2147483648.
         if self.birth_date.lineEdit():
-            rx_date = QtCore.QRegularExpression(r"^\d{0,2}\.\d{0,2}\.\d{0,4}$")
-            self.birth_date.lineEdit().setValidator(QtGui.QRegularExpressionValidator(rx_date, self))
             self.birth_date.lineEdit().setPlaceholderText("ДД.ММ.ГГГГ")
-            self.birth_date.lineEdit().textEdited.connect(self._on_birth_text_edited)
-            self.birth_date.lineEdit().installEventFilter(self)
 
         self.age_edit = QtWidgets.QLineEdit()
         self.age_edit.setReadOnly(True)
@@ -334,41 +334,6 @@ class PatientDialog(QtWidgets.QDialog):
         qd = self.birth_date.date()
         return bool(qd and qd > self._birth_min_date)
 
-    def _on_birth_text_edited(self, text: str) -> None:
-        if self._birth_editing:
-            return
-        digits = re.sub(r"\D", "", text or "")[:8]
-        if not digits:
-            return
-        day = digits[:2]
-        month = digits[2:4] if len(digits) > 2 else ""
-        year = digits[4:8] if len(digits) > 4 else ""
-        new_text = day
-        if len(digits) >= 2:
-            new_text += "."
-        if month:
-            new_text += month
-        if len(digits) >= 4:
-            new_text += "."
-        if year:
-            new_text += year
-        self._birth_editing = True
-        try:
-            le = self.birth_date.lineEdit()
-            if le is not None:
-                le.setText(new_text)
-                le.setCursorPosition(len(new_text))
-        finally:
-            self._birth_editing = False
-
-        if len(digits) == 8:
-            day = int(digits[:2])
-            month = int(digits[2:4])
-            year = int(digits[4:8])
-            qd = QtCore.QDate(year, month, day)
-            if qd.isValid() and qd <= QtCore.QDate.currentDate():
-                self.birth_date.setDate(qd)
-
     def _refresh_age(self) -> None:
         if not self._birth_date_is_set():
             self.age_edit.setText("")
@@ -430,18 +395,6 @@ class PatientDialog(QtWidgets.QDialog):
         self.save_btn.setEnabled(can)
 
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
-        if self.birth_date.lineEdit() is obj:
-            if event.type() == QtCore.QEvent.Type.MouseButtonPress:
-                try:
-                    self.birth_date.lineEdit().selectAll()
-                except Exception:
-                    pass
-                return True
-            if event.type() == QtCore.QEvent.Type.FocusIn:
-                try:
-                    self.birth_date.lineEdit().selectAll()
-                except Exception:
-                    pass
         if event.type() == QtCore.QEvent.Type.MouseButtonPress:
             for combo in self._combo_popup_targets:
                 if combo.lineEdit() is obj:

@@ -101,6 +101,9 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           selection-color: #ffffff;
           outline: 0;
         }
+        QComboBox QAbstractItemView::item {
+          padding: 6px 12px;
+        }
         QComboBox QAbstractItemView::item:hover {
           background: #eef5ff; /* подсветка при наведении */
           color: #000000;

@@ -119,7 +119,11 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
         layout.setSpacing(4)
 
         self.toggle_btn = QtWidgets.QToolButton()
-        self.toggle_btn.setText(title)
+        # По просьбе: двоеточие после названия группы
+        t = (title or "").strip()
+        if t and not t.endswith(":"):
+            t = t + ":"
+        self.toggle_btn.setText(t)
         self.toggle_btn.setCheckable(True)
         self.toggle_btn.setChecked(expanded)
         self.toggle_btn.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -140,6 +144,9 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
               font-weight: bold;
               font-size: 12pt;
               padding: 8px 10px;
+              /* Чтобы "шапка" группы заканчивалась там же, где и поля (с небольшим отступом) */
+              margin-left: 6px;
+              margin-right: 6px;
               border: 1px solid #bbbbbb;
               border-radius: 4px;
               text-align: left;
@@ -152,8 +159,9 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
         self.content_layout = QtWidgets.QVBoxLayout(self.content)
         # По скринам: элементы внутри группы должны быть "на одном уровне" с заголовком/табом,
         # без лишнего сдвига вправо.
-        self.content_layout.setContentsMargins(0, 6, 0, 6)
-        self.content_layout.setSpacing(8)
+        # Чуть ближе к заголовку группы
+        self.content_layout.setContentsMargins(0, 4, 0, 4)
+        self.content_layout.setSpacing(6)
         self.content.setVisible(expanded)
         layout.addWidget(self.content)
 
@@ -272,7 +280,8 @@ class ProtocolBuilderQt(QtCore.QObject):
                     QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum
                 )
                 scroll_layout = QtWidgets.QVBoxLayout(scroll_body)
-                scroll_layout.setContentsMargins(0, 8, 0, 8)
+                # Небольшой отступ справа от края окна (и симметрично слева)
+                scroll_layout.setContentsMargins(0, 8, 10, 8)
                 scroll_layout.setSpacing(10)
                 scroll_layout.setSizeConstraint(QtWidgets.QLayout.SizeConstraint.SetMinimumSize)
                 scroll_layout.addStretch(1)
@@ -330,21 +339,21 @@ class ProtocolBuilderQt(QtCore.QObject):
                     # - "левая" (2) и "правая" (3) в две колонки
                     full_widget = QtWidgets.QWidget()
                     full_grid = QtWidgets.QGridLayout(full_widget)
-                    full_grid.setContentsMargins(6, 0, 0, 0)
+                    full_grid.setContentsMargins(6, 0, 6, 0)
                     full_grid.setHorizontalSpacing(10)
                     full_grid.setVerticalSpacing(8)
                     full_grid.setColumnStretch(1, 1)
 
                     left_widget = QtWidgets.QWidget()
                     left_grid = QtWidgets.QGridLayout(left_widget)
-                    left_grid.setContentsMargins(6, 0, 0, 0)
+                    left_grid.setContentsMargins(6, 0, 6, 0)
                     left_grid.setHorizontalSpacing(10)
                     left_grid.setVerticalSpacing(8)
                     left_grid.setColumnStretch(1, 1)
 
                     right_widget = QtWidgets.QWidget()
                     right_grid = QtWidgets.QGridLayout(right_widget)
-                    right_grid.setContentsMargins(6, 0, 0, 0)
+                    right_grid.setContentsMargins(6, 0, 6, 0)
                     right_grid.setHorizontalSpacing(10)
                     right_grid.setVerticalSpacing(8)
                     right_grid.setColumnStretch(1, 1)
@@ -449,14 +458,11 @@ class ProtocolBuilderQt(QtCore.QObject):
                         lr_layout = QtWidgets.QHBoxLayout()
                         lr_layout.setContentsMargins(0, 0, 0, 0)
                         lr_layout.setSpacing(16)
-                        if counts["left"] > 0:
-                            lr_layout.addWidget(left_widget, 1)
-                        else:
-                            lr_layout.addStretch(1)
-                        if counts["right"] > 0:
-                            lr_layout.addWidget(right_widget, 1)
-                        else:
-                            lr_layout.addStretch(1)
+                        # Важно: даже если одна из колонок пуста, добавляем оба widget и НЕ скрываем их,
+                        # иначе оставшаяся колонка растянется "сплошняком" на всю ширину.
+                        # Пустая колонка должна просто занимать своё место (половину ширины).
+                        lr_layout.addWidget(left_widget, 1)
+                        lr_layout.addWidget(right_widget, 1)
                         group_box.content_layout.addLayout(lr_layout)
 
                     # Выравниваем старт полей по самой длинной подписи (единая ширина для всех колонок)
@@ -555,7 +561,10 @@ class ProtocolBuilderQt(QtCore.QObject):
                 cb.addItem(str(v["value"]))
             cb.setCurrentIndex(-1)
             cb.setProperty("multiline_display", True)
-            cb.setProperty("placeholder_text", "Выберите")
+            # По просьбе: когда ничего не выбрано, показываем пусто (без "Выберите")
+            cb.setProperty("placeholder_text", "")
+            # По просьбе: визуально одинаковая "толщина" полей — не раздуваем комбобокс по высоте.
+            cb.setProperty("max_display_height", 30)
             cb.currentIndexChanged.connect(lambda _=None: cb.adjust_multiline_height())
             QtCore.QTimer.singleShot(0, cb.adjust_multiline_height)
             if self._read_only:
@@ -580,7 +589,8 @@ class ProtocolBuilderQt(QtCore.QObject):
                 cb.addItem(str(v["value"]))
             cb.setCurrentIndex(-1)
             cb.setEditText("")
-            self._setup_combo_placeholder(cb, "Выберите")
+            # По просьбе: пусто, без "Выберите"
+            self._setup_combo_placeholder(cb, "")
             self._register_combo_popup(cb)
             if self._read_only:
                 cb.setEnabled(False)
@@ -699,7 +709,7 @@ class ProtocolBuilderQt(QtCore.QObject):
 
         display_widget.setMinimumWidth(200)
         if not grow_height:
-            display_widget.setMinimumHeight(26)
+            display_widget.setMinimumHeight(30)
         if apply_border:
             display_widget.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
         display_widget.setSizePolicy(

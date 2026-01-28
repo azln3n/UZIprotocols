@@ -3,6 +3,10 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
+_POPUP_ITEM_PADDING = "padding: 6px 12px;"
+_DISPLAY_TEXT_PAD_X = 8
+
+
 class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
     def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionViewItem, index) -> None:
         opt = QtWidgets.QStyleOptionViewItem(option)
@@ -78,9 +82,12 @@ class AutoComboBox(QtWidgets.QComboBox):
                 view.setUniformItemSizes(False)
                 view.setAlternatingRowColors(False)
                 view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                # Явно наследуем шрифт (Arial 12 задаётся на QApplication, но на некоторых темах
+                # попап может взять системный).
+                view.setFont(self.font())
                 view.setStyleSheet(
                     "QListView { background: #ffffff; }"
-                    "QListView::item { background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; }"
+                    f"QListView::item {{ {_POPUP_ITEM_PADDING} background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; }}"
                     "QListView::item:hover { background: #e6f0ff; }"
                     "QListView::item:selected { background: #1e88e5; color: #ffffff; }"
                 )
@@ -90,6 +97,16 @@ class AutoComboBox(QtWidgets.QComboBox):
 
     def _multiline_enabled(self) -> bool:
         return bool(self.property("multiline_display"))
+
+    def _max_display_height(self) -> int | None:
+        try:
+            v = self.property("max_display_height")
+            if v is None:
+                return None
+            iv = int(v)
+            return iv if iv > 0 else None
+        except Exception:
+            return None
 
     def sizeHint(self) -> QtCore.QSize:
         sh = super().sizeHint()
@@ -112,7 +129,11 @@ class AutoComboBox(QtWidgets.QComboBox):
         doc.setPlainText(text)
         doc.setTextWidth(width)
         height = int(doc.size().height()) + 8
-        return QtCore.QSize(sh.width(), max(sh.height(), height))
+        h = max(sh.height(), height)
+        cap = self._max_display_height()
+        if cap is not None:
+            h = min(h, int(cap))
+        return QtCore.QSize(sh.width(), int(h))
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:
         if not self._multiline_enabled():
@@ -128,8 +149,11 @@ class AutoComboBox(QtWidgets.QComboBox):
             QtWidgets.QStyle.SubControl.SC_ComboBoxEditField,
             self,
         )
+        # Левый отступ для текста (иначе "прилипает" к краю в multiline режиме)
+        edit_rect = edit_rect.adjusted(_DISPLAY_TEXT_PAD_X, 0, -2, 0)
         text = self.currentText() or ""
         if not text.strip():
+            # По просьбе: для некоторых полей placeholder может быть пустым (тогда просто не рисуем текст)
             text = str(self.property("placeholder_text") or "")
             painter.setPen(self.palette().color(QtGui.QPalette.ColorRole.PlaceholderText))
         else:
@@ -165,6 +189,9 @@ class AutoComboBox(QtWidgets.QComboBox):
         doc.setTextWidth(width)
         height = int(doc.size().height()) + 8
         h = max(base_h, height)
+        cap = self._max_display_height()
+        if cap is not None:
+            h = min(h, int(cap))
         self.setFixedHeight(h)
         le = self.lineEdit()
         if le is not None:
@@ -185,6 +212,7 @@ class AutoComboBox(QtWidgets.QComboBox):
 
                 view = self.view()
                 if view is not None:
+                    view.setFont(self.font())
                     view.setWordWrap(True)
                     view.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
                     view.setUniformItemSizes(False)
@@ -196,7 +224,7 @@ class AutoComboBox(QtWidgets.QComboBox):
                     view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
                     view.setStyleSheet(
                         "QListView { background: #ffffff; }"
-                        "QListView::item { background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; }"
+                        f"QListView::item {{ {_POPUP_ITEM_PADDING} background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; }}"
                         "QListView::item:hover { background: #e6f0ff; }"
                         "QListView::item:selected { background: #1e88e5; color: #ffffff; }"
                     )
@@ -214,8 +242,10 @@ class AutoComboBox(QtWidgets.QComboBox):
 
                     # Width: keep close to combo width to allow wrapping
                     desired_w = max(int(self.width()), 180)
-                    view.setFixedWidth(int(desired_w))
-                    self._last_popup_width = int(desired_w)
+                    # Не используем fixedWidth (и не трогаем окно попапа после открытия) —
+                    # на некоторых Windows-сборках это вызывает "мерцание" и неправильную позицию попапа
+                    # при первом открытии/клике.
+                    view.setMinimumWidth(int(desired_w))
 
                     # Hide scrollbar when everything fits
                     if count <= visible:
@@ -230,12 +260,4 @@ class AutoComboBox(QtWidgets.QComboBox):
             pass
 
         super().showPopup()
-        try:
-            view = self.view()
-            if view is not None and self._last_popup_width:
-                popup = view.window()
-                if isinstance(popup, QtWidgets.QWidget):
-                    popup.setFixedWidth(int(self._last_popup_width))
-        except Exception:
-            pass
 

@@ -9,6 +9,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..db import connect
 from ..paths import db_path, ultrasound_dir
+from ..repo import delete_field, delete_group, delete_patient, delete_protocol, delete_tab
 from .auto_combo import AutoComboBox
 
 
@@ -522,18 +523,52 @@ class DatabaseAdminDialog(QtWidgets.QDialog):
             return
 
         try:
-            with connect() as conn:
-                cur = conn.cursor()
-                cur.execute("BEGIN")
-                if t.pk_columns:
-                    where_parts = [f"{pk} = ?" for pk in t.pk_columns]
-                    cur.execute(
-                        f"DELETE FROM {t.name} WHERE {' AND '.join(where_parts)}",
-                        list(key),
+            # Для ключевых таблиц используем "безопасные" операции репозитория,
+            # чтобы соблюсти ограничения ТЗ (нельзя удалить родителя при наличии детей)
+            # и/или выполнить каскад (например, протокол -> значения).
+            if t.name in ("protocols", "patients", "tabs", "groups", "fields"):
+                # поддерживаем только PK вида id (или rowid fallback)
+                obj_id: int | None = None
+                if t.pk_columns and len(t.pk_columns) == 1:
+                    obj_id = int(key[0])
+                elif not t.pk_columns and t.has_rowid:
+                    obj_id = int(key[0])
+
+                if obj_id is None:
+                    QtWidgets.QMessageBox.warning(
+                        self, "Нельзя", "Не удалось определить id строки (нет PK/rowid)."
                     )
-                else:
-                    cur.execute(f"DELETE FROM {t.name} WHERE rowid = ?", (key[0],))
-                conn.commit()
+                    return
+
+                if t.name == "protocols":
+                    delete_protocol(int(obj_id))
+                elif t.name == "patients":
+                    delete_patient(int(obj_id))
+                elif t.name == "tabs":
+                    delete_tab(int(obj_id))
+                elif t.name == "groups":
+                    delete_group(int(obj_id))
+                elif t.name == "fields":
+                    delete_field(int(obj_id))
+                else:  # pragma: no cover
+                    pass
+            else:
+                with connect() as conn:
+                    cur = conn.cursor()
+                    cur.execute("BEGIN")
+                    if t.pk_columns:
+                        where_parts = [f"{pk} = ?" for pk in t.pk_columns]
+                        cur.execute(
+                            f"DELETE FROM {t.name} WHERE {' AND '.join(where_parts)}",
+                            list(key),
+                        )
+                    else:
+                        cur.execute(f"DELETE FROM {t.name} WHERE rowid = ?", (key[0],))
+                    conn.commit()
+        except ValueError as e:
+            # repo.delete_* uses ValueError for "нельзя удалить"
+            QtWidgets.QMessageBox.warning(self, "Нельзя удалить", str(e))
+            return
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Ошибка", f"Не удалось удалить:\n{e}")
             return

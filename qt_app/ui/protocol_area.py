@@ -49,7 +49,8 @@ class ProtocolArea(QtWidgets.QWidget):
         top_frame = QtWidgets.QFrame()
         top_frame.setStyleSheet("QFrame { background: #f1f1f1; border: 1px solid #ddd; border-radius: 6px; }")
         top_layout = QtWidgets.QVBoxLayout(top_frame)
-        top_layout.setContentsMargins(10, 8, 10, 8)
+        # Чуть больше внутренние отступы, чтобы рамки кнопок не "упирались" в рамку плашки.
+        top_layout.setContentsMargins(12, 10, 12, 10)
         top_layout.setSpacing(8)
 
         self._title_full_text = "Окно протокола"
@@ -130,7 +131,8 @@ class ProtocolArea(QtWidgets.QWidget):
         toolbar_widget.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Fixed)
         toolbar_widget.adjustSize()
         toolbar_widget.setMinimumWidth(toolbar_widget.sizeHint().width())
-        toolbar_h = int(back_btn.sizeHint().height())
+        # Чуть увеличиваем фиксированную высоту, чтобы рамка/фокус кнопок не обрезались сверху/снизу.
+        toolbar_h = int(back_btn.sizeHint().height()) + 4
         toolbar_widget.setFixedHeight(toolbar_h)
         scroll.setFixedHeight(toolbar_h)
 

@@ -31,30 +31,110 @@ ROLE_PATIENT_SELECTED = int(QtCore.Qt.ItemDataRole.UserRole) + 11
 
 class _PatientProtocolDelegate(QtWidgets.QStyledItemDelegate):
     def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionViewItem, index) -> None:
+        # Важно: option.font не всегда учитывает шрифт/размер, заданный в QTreeWidgetItem.
+        # Берём "правильные" значения через initStyleOption().
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+
         kind = index.data(ROLE_KIND)
         is_patient = bool(kind and isinstance(kind, (list, tuple)) and kind[0] == "patient")
         is_protocol = bool(kind and isinstance(kind, (list, tuple)) and kind[0] == "protocol")
 
-        if is_patient and bool(index.data(ROLE_PATIENT_SELECTED)):
+        # Рисуем фон сами (иначе QSS/QStyle затирает заливку).
+        if is_patient or is_protocol:
             painter.save()
             painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
             rect = option.rect.adjusted(1, 1, -1, -1)
-            painter.fillRect(rect, QtGui.QColor("#FF95A8"))
-            painter.restore()
-        elif is_protocol and bool(index.data(ROLE_PROTOCOL_SELECTED)):
-            painter.save()
-            painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
-            rect = option.rect.adjusted(1, 1, -1, -1)
-            painter.fillRect(rect, QtGui.QColor("#c6dbff"))
-            pen = QtGui.QPen(QtGui.QColor("#7dafff"))
-            pen.setWidth(1)
-            painter.setPen(pen)
-            painter.drawRoundedRect(rect, 6, 6)
-            painter.restore()
 
-        opt = QtWidgets.QStyleOptionViewItem(option)
-        opt.state &= ~QtWidgets.QStyle.StateFlag.State_Selected
-        super().paint(painter, opt, index)
+            if is_patient:
+                bg = QtGui.QColor("#FF95A8") if bool(index.data(ROLE_PATIENT_SELECTED)) else QtGui.QColor("#c6dbff")
+                painter.setPen(QtCore.Qt.PenStyle.NoPen)
+                painter.setBrush(bg)
+                painter.drawRoundedRect(rect, 6, 6)
+                text_rect = rect.adjusted(10, 0, -10, 0)
+            else:
+                # Протоколы: фон не на всю строку — начинаем там, где "плашка" (отступ как в примере).
+                left_pad = 22
+                box = rect.adjusted(left_pad, 0, 0, 0)
+                bg = QtGui.QColor("#c6dbff") if bool(index.data(ROLE_PROTOCOL_SELECTED)) else QtGui.QColor("#ffffff")
+                painter.setPen(QtCore.Qt.PenStyle.NoPen)
+                painter.setBrush(bg)
+                painter.drawRoundedRect(box, 6, 6)
+                text_rect = box.adjusted(8, 0, -8, 0)
+
+            # Текст
+            font = QtGui.QFont(opt.font)
+            if is_patient:
+                # По ТЗ/скрину: выбранный пациент — жирным
+                font.setBold(bool(index.data(ROLE_PATIENT_SELECTED)))
+            painter.setFont(font)
+            painter.setPen(opt.palette.color(QtGui.QPalette.ColorRole.Text))
+            text = str(opt.text or "")
+            painter.drawText(
+                text_rect,
+                int(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter),
+                text,
+            )
+            painter.restore()
+            return
+
+        super().paint(painter, option, index)
+
+
+class _GripSplitterHandle(QtWidgets.QSplitterHandle):
+    """
+    Визуально показывает маленькую "ручку" (грип) по центру, вместо полосы на всю высоту.
+    Сам handle остаётся функциональным для перетаскивания.
+    """
+
+    def __init__(self, orientation: QtCore.Qt.Orientation, parent: QtWidgets.QSplitter):
+        super().__init__(orientation, parent)
+        self._hover = False
+        self.setMouseTracking(True)
+
+    def enterEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802 (Qt naming)
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QtCore.QEvent) -> None:  # noqa: N802 (Qt naming)
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802 (Qt naming)
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+
+        # Прозрачный фон (не рисуем "полосу")
+        painter.fillRect(self.rect(), QtCore.Qt.GlobalColor.transparent)
+
+        # Маленький грип по центру
+        w = max(8, int(self.width()))
+        grip_h = 44
+        grip_w = min(10, w)
+        r = self.rect()
+        cx = r.center().x()
+        cy = r.center().y()
+        grip = QtCore.QRect(int(cx - grip_w // 2), int(cy - grip_h // 2), int(grip_w), int(grip_h))
+
+        bg = QtGui.QColor("#007bff") if self._hover else QtGui.QColor("#c0c0c0")
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(bg)
+        painter.drawRoundedRect(grip, 5, 5)
+
+        # Три точки внутри (как "иконка для растяжения")
+        dot = QtGui.QColor("#ffffff")
+        painter.setBrush(dot)
+        dot_r = 2
+        spacing = 10
+        for i in (-1, 0, 1):
+            painter.drawEllipse(QtCore.QPoint(int(cx), int(cy + i * spacing)), dot_r, dot_r)
+
+
+class _GripSplitter(QtWidgets.QSplitter):
+    def createHandle(self) -> QtWidgets.QSplitterHandle:  # noqa: N802 (Qt naming)
+        return _GripSplitterHandle(self.orientation(), self)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -71,8 +151,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._selected_protocol_item: QtWidgets.QTreeWidgetItem | None = None
         self._search_highlight_ids: set[int] = set()
 
-        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        splitter = _GripSplitter(QtCore.Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
+        # Шире для удобного захвата, но визуально рисуем только маленький грип по центру.
+        splitter.setHandleWidth(14)
 
         # ===== Left: patients list =====
         left = QtWidgets.QWidget()
@@ -86,7 +168,8 @@ class MainWindow(QtWidgets.QMainWindow):
         header = QtWidgets.QFrame()
         header.setStyleSheet("QFrame { background: #f1f1f1; border: 1px solid #ddd; border-radius: 6px; }")
         header_layout = QtWidgets.QVBoxLayout(header)
-        header_layout.setContentsMargins(10, 10, 10, 10)
+        # Чуть больше внутренние отступы, чтобы рамки кнопок (border) не "упирались" в рамку группы.
+        header_layout.setContentsMargins(12, 12, 12, 12)
         header_layout.setSpacing(8)
 
         title = QtWidgets.QLabel("Список пациентов")
@@ -139,7 +222,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Patient list with expandable protocols (по просьбе: клик по ФИО раскрывает протоколы снизу)
         patients_frame = QtWidgets.QFrame()
-        patients_frame.setStyleSheet("QFrame { background: #ffffff; border: 1px solid #ddd; border-radius: 6px; }")
+        # Фон контейнера списка пациентов — как у плашки с кнопками в окне протокола
+        patients_frame.setStyleSheet("QFrame { background: #f1f1f1; border: 1px solid #ddd; border-radius: 6px; }")
         patients_layout = QtWidgets.QVBoxLayout(patients_frame)
         patients_layout.setContentsMargins(6, 6, 6, 6)
         patients_layout.setSpacing(0)
@@ -163,7 +247,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.patient_tree.viewport().installEventFilter(self)
         self.patient_tree.setStyleSheet(
             """
-            QTreeWidget { background: #ffffff; border: 0px; }
+            /* Прозрачный фон, чтобы был виден фон контейнера patients_frame */
+            QTreeWidget { background: transparent; border: 0px; }
+            QTreeWidget::viewport { background: transparent; }
             /* Hide default expand/collapse indicator (some themes show it as black squares) */
             QTreeView::branch {
               background: transparent;
@@ -191,17 +277,23 @@ class MainWindow(QtWidgets.QMainWindow):
             QTreeWidget::item { outline: 0; }
             /* patients (top-level, has children indicator) */
             QTreeWidget::item:has-children {
-              border: 1px solid #7dafff;
-              border-radius: 6px;
+              border: 0px;
               padding: 10px;
               margin-bottom: 2px;
+            }
+            QTreeWidget::item:has-children:hover {
+              /* фон рисуется делегатом; hover оставляем пустым */
             }
             /* protocols (children) look like "button", highlight only on hover */
             QTreeWidget::item:!has-children {
               border: 0px;
-              border-radius: 6px;
-              padding: 8px;
+              padding: 4px 8px;
               margin-left: 22px;
+              margin-top: 2px;
+              margin-bottom: 2px;
+            }
+            QTreeWidget::item:!has-children:hover {
+              /* фон рисуется делегатом; hover оставляем пустым */
             }
             """
         )
@@ -235,7 +327,13 @@ class MainWindow(QtWidgets.QMainWindow):
         splitter.addWidget(right)
         splitter.setSizes([420, 780])
 
-        self.setCentralWidget(splitter)
+        # Внешний отступ от границ окна до всего контента (чтобы правый блок не упирался в край).
+        central = QtWidgets.QWidget()
+        outer = QtWidgets.QHBoxLayout(central)
+        outer.setContentsMargins(12, 12, 12, 12)
+        outer.setSpacing(0)
+        outer.addWidget(splitter, 1)
+        self.setCentralWidget(central)
 
         self._reload_patients()
         self._refresh_buttons()
@@ -534,7 +632,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ch.setData(0, QtCore.Qt.ItemDataRole.UserRole, ("protocol", 0))
             ch.setTextAlignment(0, QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
             f = ch.font(0)
-            f.setPointSize(12)
+            f.setPointSize(10)
             ch.setFont(0, f)
             patient_item.addChild(ch)
         else:
@@ -545,7 +643,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 ch.setData(0, QtCore.Qt.ItemDataRole.UserRole + 1, int(pr.study_type_id))
                 ch.setTextAlignment(0, QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
                 f = ch.font(0)
-                f.setPointSize(12)
+                f.setPointSize(10)
                 ch.setFont(0, f)
                 patient_item.addChild(ch)
         patient_item.setExpanded(True)
