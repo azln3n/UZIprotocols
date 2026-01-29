@@ -604,8 +604,14 @@ class ProtocolBuilderQt(QtCore.QObject):
             if _view is not None:
                 _view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                 _view.setFont(QtGui.QFont("Arial", 12))
+            # Серая рамка, синяя при фокусе и при открытом списке (:on)
+            cb.setStyleSheet(
+                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
+                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
+            )
             w = cb
             grow_height = False
+            apply_border = False  # стиль уже задан выше, не перезаписывать
         elif t == "шаблон":
             cb = AutoComboBox(max_popup_items=30)
             cb.setFont(QtGui.QFont("Arial", 12))
@@ -641,7 +647,10 @@ class ProtocolBuilderQt(QtCore.QObject):
             # Скролл — через QScrollArea (как в окне протокола), чтобы была каретка
             ta.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             ta.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            ta.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+            ta.setStyleSheet(
+                "QPlainTextEdit { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
+                "QPlainTextEdit:focus { border: 2px solid #007bff; padding: 3px 5px; }"
+            )
             ta.setMinimumHeight(80)
 
             scroll_area = QtWidgets.QScrollArea()
@@ -679,7 +688,11 @@ class ProtocolBuilderQt(QtCore.QObject):
             )
             QtCore.QTimer.singleShot(50, _update_template_ta_width)
 
-            cb.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+            # Серая рамка, синяя при фокусе и при открытом списке (:on)
+            cb.setStyleSheet(
+                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
+                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
+            )
 
             def _append_value(text: str) -> None:
                 if not text or not text.strip():
@@ -771,9 +784,15 @@ class ProtocolBuilderQt(QtCore.QObject):
         if not grow_height:
             display_widget.setMinimumHeight(30)
         if apply_border:
-            base_style = "border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;"
-            display_widget.setProperty("base_border_style", base_style)
-            display_widget.setStyleSheet(base_style)
+            # Рамка серая, при фокусе — синяя
+            _field_normal = "border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;"
+            _field_focus = "border: 2px solid #007bff; padding: 3px 5px;"
+            _full = (
+                "QLineEdit, QPlainTextEdit, QDateEdit, QTimeEdit { " + _field_normal + " } "
+                "QLineEdit:focus, QPlainTextEdit:focus, QDateEdit:focus, QTimeEdit:focus { " + _field_focus + " }"
+            )
+            display_widget.setProperty("base_border_style", _full)
+            display_widget.setStyleSheet(_full)
         display_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Preferred if grow_height else QtWidgets.QSizePolicy.Policy.Fixed,
@@ -870,8 +889,14 @@ class ProtocolBuilderQt(QtCore.QObject):
             else:
                 w.setStyleSheet("")
             return
+        # Добавляем фон отдельным правилом, не трогая :focus
         if base_style:
-            w.setStyleSheet(f"{base_style} background: {color.name()};")
+            w.setStyleSheet(
+                base_style
+                + " QLineEdit, QPlainTextEdit, QDateEdit, QTimeEdit { background: "
+                + color.name()
+                + "; }"
+            )
         else:
             w.setStyleSheet(f"background: {color.name()};")
 
