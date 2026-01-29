@@ -179,7 +179,8 @@ class PatientDialog(QtWidgets.QDialog):
         self._birth_min_date = QtCore.QDate(1900, 1, 1)
         self.birth_date.setMinimumDate(self._birth_min_date)
         self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
-        self.birth_date.setSpecialValueText("ДД.ММ.ГГГГ")
+        # Плейсхолдер показываем через lineEdit, без specialValueText
+        self.birth_date.setSpecialValueText("")
         self.birth_date.setDate(self._birth_min_date)
         # Важно: не применять "частичные" значения во время набора (иначе возможны странные артефакты
         # при открытом календаре на некоторых Windows-сборках).
@@ -189,6 +190,8 @@ class PatientDialog(QtWidgets.QDialog):
         # Подмена валидатора ломает ввод и может приводить к значениям вида -2147483648.
         if self.birth_date.lineEdit():
             self.birth_date.lineEdit().setPlaceholderText("ДД.ММ.ГГГГ")
+            # При фокусе с клавиатуры выделяем плейсхолдер, чтобы ввод сразу заменял дату
+            self.birth_date.lineEdit().installEventFilter(self)
 
         self.age_edit = QtWidgets.QLineEdit()
         self.age_edit.setReadOnly(True)
@@ -390,6 +393,36 @@ class PatientDialog(QtWidgets.QDialog):
             can = False
 
         self.save_btn.setEnabled(can)
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        le = self.birth_date.lineEdit()
+        if le is obj:
+            if event.type() == QtCore.QEvent.Type.FocusIn:
+                try:
+                    self.birth_date.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                    self.birth_date.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                    le.selectAll()
+                except Exception:
+                    pass
+            if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+                try:
+                    self.birth_date.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                    self.birth_date.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                    le.selectAll()
+                except Exception:
+                    pass
+            if event.type() == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
+                txt = le.text() or ""
+                # Если отображается плейсхолдер, то первый ввод должен заменять его,
+                # а не дописываться после "ДД.ММ.ГГГГ".
+                if txt.strip() in ("ДД.ММ.ГГГГ", "") and le.hasSelectedText():
+                    key = event.key()
+                    if QtCore.Qt.Key.Key_0 <= key <= QtCore.Qt.Key.Key_9:
+                        le.clear()
+                    elif key in (QtCore.Qt.Key.Key_Backspace, QtCore.Qt.Key.Key_Delete):
+                        le.clear()
+                        return True
+        return super().eventFilter(obj, event)
 
     def _setup_combo_placeholder(self, combo: QtWidgets.QComboBox) -> None:
         combo.setEditable(True)
