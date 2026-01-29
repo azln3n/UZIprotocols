@@ -892,7 +892,7 @@ class SettingsStructureDialog(QtWidgets.QDialog):
             idx = ftype.findText(existing.field_type)
             if idx >= 0:
                 ftype.setCurrentIndex(idx)
-        col = QtWidgets.QComboBox()
+        col = AutoComboBox(max_popup_items=30)
         col.addItem("Сплошная", 1)
         col.addItem("Левая колонка", 2)
         col.addItem("Правая колонка", 3)

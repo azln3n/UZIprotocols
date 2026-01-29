@@ -520,7 +520,14 @@ def delete_study_type(study_type_id: int) -> None:
         cur = conn.cursor()
         st_id = int(study_type_id)
 
-        cnt = cur.execute(
+        tabs_cnt = cur.execute(
+            "SELECT COUNT(*) AS cnt FROM tabs WHERE study_type_id = ?",
+            (st_id,),
+        ).fetchone()
+        if tabs_cnt and int(tabs_cnt["cnt"]) > 0:
+            raise ValueError("Нельзя удалить протокол: сначала удалите вкладки.")
+
+        groups_cnt = cur.execute(
             """
             SELECT COUNT(*) AS cnt
             FROM groups g
@@ -529,8 +536,21 @@ def delete_study_type(study_type_id: int) -> None:
             """,
             (st_id,),
         ).fetchone()
-        if cnt and int(cnt["cnt"]) > 0:
-            raise ValueError("Исследование невозможно удалить. Сначала удалите группы и поля.")
+        if groups_cnt and int(groups_cnt["cnt"]) > 0:
+            raise ValueError("Нельзя удалить протокол: сначала удалите группы.")
+
+        fields_cnt = cur.execute(
+            """
+            SELECT COUNT(*) AS cnt
+            FROM fields f
+            JOIN groups g ON g.id = f.group_id
+            JOIN tabs t ON t.id = g.tab_id
+            WHERE t.study_type_id = ?
+            """,
+            (st_id,),
+        ).fetchone()
+        if fields_cnt and int(fields_cnt["cnt"]) > 0:
+            raise ValueError("Нельзя удалить протокол: сначала удалите поля.")
 
         # Чтобы не оставлять "битые" ссылки — удаляем также протоколы этого типа и их значения.
         prot_ids = [

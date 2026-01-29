@@ -73,7 +73,7 @@ class AutoComboBox(QtWidgets.QComboBox):
     def __init__(self, *args, max_popup_items: int = 30, **kwargs):
         super().__init__(*args, **kwargs)
         self._max_popup_items = int(max_popup_items)
-        self._last_popup_width: int | None = None
+        self._le_filter_installed = False
         try:
             view = self.view()
             if view is not None:
@@ -94,6 +94,71 @@ class AutoComboBox(QtWidgets.QComboBox):
                 view.setItemDelegate(WrapAnywhereDelegate(view))
         except Exception:
             pass
+        self._ensure_lineedit_filter()
+
+    def setEditable(self, editable: bool) -> None:  # noqa: N802 (Qt naming)
+        # При переключении editable Qt может создать новый lineEdit().
+        # Нам нужно сразу поставить фильтр, чтобы попап открывался кликом по полю с первого раза.
+        super().setEditable(bool(editable))
+        # lineEdit() появился/обновился -> ставим фильтр
+        self._le_filter_installed = False
+        self._ensure_lineedit_filter()
+
+    def _ensure_lineedit_filter(self) -> None:
+        if self._le_filter_installed:
+            return
+        le = self.lineEdit()
+        if le is None:
+            return
+        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        le.installEventFilter(self)
+        self._le_filter_installed = True
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        # Открытие попапа по клику в поле (а не только по стрелке),
+        # и по клавиатуре (Tab -> стрелки/Alt+Down), без мерцания/двойного открытия.
+        le = self.lineEdit()
+        if le is not None and obj is le:
+            et = event.type()
+            if et == QtCore.QEvent.Type.MouseButtonPress:
+                try:
+                    self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+                except Exception:
+                    pass
+                self.showPopup()
+                return True
+            if et == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
+                key = event.key()
+                if key in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Up) or (
+                    key == QtCore.Qt.Key.Key_Space
+                ):
+                    self.showPopup()
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _force_popup_below(self) -> None:
+        view = self.view()
+        if view is None:
+            return
+        popup = view.window()
+        if not isinstance(popup, QtWidgets.QWidget):
+            return
+        try:
+            below_y = self.mapToGlobal(QtCore.QPoint(0, self.height())).y()
+            pg = popup.geometry()
+            screen = QtGui.QGuiApplication.screenAt(self.mapToGlobal(QtCore.QPoint(0, 0)))
+            if screen is None:
+                screen = QtGui.QGuiApplication.primaryScreen()
+            if screen is None:
+                return
+            avail = screen.availableGeometry()
+            max_h = max(80, int(avail.bottom() - below_y - 6))
+            # Всегда позиционируем ниже, и ограничиваем высоту доступным пространством.
+            pg.setTop(below_y)
+            pg.setHeight(min(int(pg.height()), max_h))
+            popup.setGeometry(pg)
+        except Exception:
+            return
 
     def _multiline_enabled(self) -> bool:
         return bool(self.property("multiline_display"))
@@ -204,6 +269,7 @@ class AutoComboBox(QtWidgets.QComboBox):
             self.adjust_multiline_height()
 
     def showPopup(self) -> None:  # noqa: N802 (Qt naming)
+        self._ensure_lineedit_filter()
         try:
             count = int(self.count() or 0)
             if count > 0:
@@ -260,4 +326,6 @@ class AutoComboBox(QtWidgets.QComboBox):
             pass
 
         super().showPopup()
+        # Принудительно позиционируем попап снизу (после фактического showPopup()).
+        QtCore.QTimer.singleShot(0, self._force_popup_below)
 

@@ -9,7 +9,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..db import connect
 from ..paths import db_path, ultrasound_dir
-from ..repo import delete_field, delete_group, delete_patient, delete_protocol, delete_tab
+from ..repo import delete_field, delete_group, delete_patient, delete_protocol, delete_tab, delete_study_type
 from .auto_combo import AutoComboBox
 
 
@@ -526,7 +526,7 @@ class DatabaseAdminDialog(QtWidgets.QDialog):
             # Для ключевых таблиц используем "безопасные" операции репозитория,
             # чтобы соблюсти ограничения ТЗ (нельзя удалить родителя при наличии детей)
             # и/или выполнить каскад (например, протокол -> значения).
-            if t.name in ("protocols", "patients", "tabs", "groups", "fields"):
+            if t.name in ("protocols", "patients", "tabs", "groups", "fields", "study_types"):
                 # поддерживаем только PK вида id (или rowid fallback)
                 obj_id: int | None = None
                 if t.pk_columns and len(t.pk_columns) == 1:
@@ -544,6 +544,8 @@ class DatabaseAdminDialog(QtWidgets.QDialog):
                     delete_protocol(int(obj_id))
                 elif t.name == "patients":
                     delete_patient(int(obj_id))
+                elif t.name == "study_types":
+                    delete_study_type(int(obj_id))
                 elif t.name == "tabs":
                     delete_tab(int(obj_id))
                 elif t.name == "groups":

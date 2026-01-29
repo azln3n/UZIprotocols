@@ -66,7 +66,6 @@ class PatientDialog(QtWidgets.QDialog):
         self.setModal(True)
 
         self._channel_items: list[ComboItem] = []
-        self._combo_popup_targets: set[QtWidgets.QComboBox] = set()
 
         self._build_ui()
         self._load_channels()
@@ -218,7 +217,6 @@ class PatientDialog(QtWidgets.QDialog):
         self.gender_combo.setMinimumHeight(input_h)
         self.gender_combo.currentIndexChanged.connect(self._refresh_save_state)
         self._setup_combo_placeholder(self.gender_combo)
-        self._register_combo_popup(self.gender_combo)
         form.addRow(_form_label("Пол:"), self.gender_combo)
 
         # Admission channel
@@ -227,7 +225,6 @@ class PatientDialog(QtWidgets.QDialog):
         self.channel_combo.setMinimumHeight(input_h)
         self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
         self._setup_combo_placeholder(self.channel_combo)
-        self._register_combo_popup(self.channel_combo)
         form.addRow(_form_label("Канал поступления:"), self.channel_combo)
 
         root.addLayout(form)
@@ -394,14 +391,6 @@ class PatientDialog(QtWidgets.QDialog):
 
         self.save_btn.setEnabled(can)
 
-    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
-        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
-            for combo in self._combo_popup_targets:
-                if combo.lineEdit() is obj:
-                    combo.showPopup()
-                    return True
-        return super().eventFilter(obj, event)
-
     def _setup_combo_placeholder(self, combo: QtWidgets.QComboBox) -> None:
         combo.setEditable(True)
         combo.lineEdit().setReadOnly(True)
@@ -410,14 +399,6 @@ class PatientDialog(QtWidgets.QDialog):
         pal.setColor(QtGui.QPalette.ColorRole.PlaceholderText, QtGui.QColor("#9aa0a6"))
         combo.setPalette(pal)
         combo.setCurrentIndex(-1)
-
-    def _register_combo_popup(self, combo: QtWidgets.QComboBox) -> None:
-        le = combo.lineEdit()
-        if le is None:
-            return
-        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        le.installEventFilter(self)
-        self._combo_popup_targets.add(combo)
 
     @QtCore.Slot()
     def _save(self) -> None:

@@ -119,11 +119,8 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
         layout.setSpacing(4)
 
         self.toggle_btn = QtWidgets.QToolButton()
-        # По просьбе: двоеточие после названия группы
-        t = (title or "").strip()
-        if t and not t.endswith(":"):
-            t = t + ":"
-        self.toggle_btn.setText(t)
+        # По требованию: НЕ добавляем двоеточие автоматически
+        self.toggle_btn.setText(title)
         self.toggle_btn.setCheckable(True)
         self.toggle_btn.setChecked(expanded)
         self.toggle_btn.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -212,7 +209,6 @@ class ProtocolBuilderQt(QtCore.QObject):
         self._protocol_id: int | None = None
         self._loading = False
         self._tab_ids: list[int] = []
-        self._combo_popup_targets: set[QtWidgets.QComboBox] = set()
 
     def build(self) -> QtWidgets.QWidget:
         container = QtWidgets.QWidget()
@@ -338,23 +334,28 @@ class ProtocolBuilderQt(QtCore.QObject):
                     # - "сплошная" (1) на всю ширину
                     # - "левая" (2) и "правая" (3) в две колонки
                     full_widget = QtWidgets.QWidget()
+                    # Сплошная колонка должна растягиваться на всю доступную ширину
+                    full_widget.setSizePolicy(
+                        QtWidgets.QSizePolicy.Policy.Expanding,
+                        QtWidgets.QSizePolicy.Policy.Preferred,
+                    )
                     full_grid = QtWidgets.QGridLayout(full_widget)
                     full_grid.setContentsMargins(6, 0, 6, 0)
-                    full_grid.setHorizontalSpacing(10)
+                    full_grid.setHorizontalSpacing(6)
                     full_grid.setVerticalSpacing(8)
                     full_grid.setColumnStretch(1, 1)
 
                     left_widget = QtWidgets.QWidget()
                     left_grid = QtWidgets.QGridLayout(left_widget)
                     left_grid.setContentsMargins(6, 0, 6, 0)
-                    left_grid.setHorizontalSpacing(10)
+                    left_grid.setHorizontalSpacing(6)
                     left_grid.setVerticalSpacing(8)
                     left_grid.setColumnStretch(1, 1)
 
                     right_widget = QtWidgets.QWidget()
                     right_grid = QtWidgets.QGridLayout(right_widget)
                     right_grid.setContentsMargins(6, 0, 6, 0)
-                    right_grid.setHorizontalSpacing(10)
+                    right_grid.setHorizontalSpacing(6)
                     right_grid.setVerticalSpacing(8)
                     right_grid.setColumnStretch(1, 1)
 
@@ -411,17 +412,20 @@ class ProtocolBuilderQt(QtCore.QObject):
 
                         if meta.required:
                             binding.label.setText(binding.label.text() + " *")
-                        # Для "шаблон": внутри контейнера два элемента (выбор + текст ниже),
-                        # поэтому стандартное VCenter приводит к тому, что подпись оказывается "между"
-                        # комбобоксом и текстом. Выравниваем подпись по верху, чтобы она была напротив выбора.
-                        if meta.field_type == "шаблон":
-                            binding.label.setAlignment(
-                                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
-                            )
-                        else:
-                            binding.label.setAlignment(
-                                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
-                            )
+                        # Выравнивание подписей:
+                        # - слева/сплошная: по левому краю (по самой длинной подписи слева)
+                        # - справа: по правому краю (по самой длинной подписи справа)
+                        h_align = (
+                            QtCore.Qt.AlignmentFlag.AlignRight
+                            if key == "right"
+                            else QtCore.Qt.AlignmentFlag.AlignLeft
+                        )
+                        v_align = (
+                            QtCore.Qt.AlignmentFlag.AlignTop
+                            if meta.field_type == "шаблон"
+                            else QtCore.Qt.AlignmentFlag.AlignVCenter
+                        )
+                        binding.label.setAlignment(h_align | v_align)
                         try:
                             lw = binding.label.sizeHint().width()
                             label_widths[key] = max(label_widths.get(key, 0), lw)
@@ -463,13 +467,24 @@ class ProtocolBuilderQt(QtCore.QObject):
                         # Пустая колонка должна просто занимать своё место (половину ширины).
                         lr_layout.addWidget(left_widget, 1)
                         lr_layout.addWidget(right_widget, 1)
+                        # Чтобы правая колонка не "висела" по центру между строками левой —
+                        # прижимаем оба блока к верху.
+                        lr_layout.setAlignment(left_widget, QtCore.Qt.AlignmentFlag.AlignTop)
+                        lr_layout.setAlignment(right_widget, QtCore.Qt.AlignmentFlag.AlignTop)
                         group_box.content_layout.addLayout(lr_layout)
 
-                    # Выравниваем старт полей по самой длинной подписи (единая ширина для всех колонок)
-                    mw = int(max_label_width or 0)
-                    if mw > 0:
-                        for grid in (full_grid, left_grid, right_grid):
-                            grid.setColumnMinimumWidth(0, mw)
+                    # Ширина колонки подписей:
+                    # - full и left должны стартовать одинаково (от самой длинной подписи слева)
+                    # - right отдельно (и подписи там AlignRight)
+                    mw_left = int(label_widths.get("left", 0) or 0)
+                    mw_full = int(label_widths.get("full", 0) or 0)
+                    mw_right = int(label_widths.get("right", 0) or 0)
+                    mw_lf = max(mw_left, mw_full)
+                    if mw_lf > 0:
+                        full_grid.setColumnMinimumWidth(0, mw_lf)
+                        left_grid.setColumnMinimumWidth(0, mw_lf)
+                    if mw_right > 0:
+                        right_grid.setColumnMinimumWidth(0, mw_right)
 
                 if stretch_item is not None:
                     scroll_layout.addItem(stretch_item)
@@ -523,7 +538,8 @@ class ProtocolBuilderQt(QtCore.QObject):
 
     def _create_field_widget(self, conn, meta: FieldMeta) -> FieldBinding:
         label = QtWidgets.QLabel(meta.name + ":")
-        label.setStyleSheet("font-weight: bold; padding: 4px 6px;")
+        # Чуть меньше расстояние между подписью и полем
+        label.setStyleSheet("font-weight: bold; padding: 4px 4px;")
 
         container = QtWidgets.QWidget()
         container.setStyleSheet("border: 0px;")
@@ -546,8 +562,10 @@ class ProtocolBuilderQt(QtCore.QObject):
             w = te
         elif t == "словарь":
             cb = AutoComboBox(max_popup_items=30)
-            # По ТЗ: словарь — выпадающий список с возможностью редактирования (ввод своего значения)
-            cb.setEditable(False)
+            # Словарь: обычный комбобокс, но значение можно отредактировать (ввод своего значения).
+            cb.setEditable(True)
+            if cb.lineEdit():
+                cb.lineEdit().setReadOnly(False)
             cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
             cb.setSizeAdjustPolicy(
                 QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -560,17 +578,12 @@ class ProtocolBuilderQt(QtCore.QObject):
             for v in vals:
                 cb.addItem(str(v["value"]))
             cb.setCurrentIndex(-1)
-            cb.setProperty("multiline_display", True)
-            # По просьбе: когда ничего не выбрано, показываем пусто (без "Выберите")
-            cb.setProperty("placeholder_text", "")
-            # По просьбе: визуально одинаковая "толщина" полей — не раздуваем комбобокс по высоте.
-            cb.setProperty("max_display_height", 30)
-            cb.currentIndexChanged.connect(lambda _=None: cb.adjust_multiline_height())
-            QtCore.QTimer.singleShot(0, cb.adjust_multiline_height)
+            # Пусто, когда ничего не выбрано
+            cb.setCurrentText("")
             if self._read_only:
                 cb.setEnabled(False)
             w = cb
-            grow_height = True
+            grow_height = False
         elif t == "шаблон":
             cb = AutoComboBox(max_popup_items=30)
             cb.setEditable(True)
@@ -591,7 +604,6 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.setEditText("")
             # По просьбе: пусто, без "Выберите"
             self._setup_combo_placeholder(cb, "")
-            self._register_combo_popup(cb)
             if self._read_only:
                 cb.setEnabled(False)
 
@@ -711,7 +723,9 @@ class ProtocolBuilderQt(QtCore.QObject):
         if not grow_height:
             display_widget.setMinimumHeight(30)
         if apply_border:
-            display_widget.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+            base_style = "border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;"
+            display_widget.setProperty("base_border_style", base_style)
+            display_widget.setStyleSheet(base_style)
         display_widget.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Preferred if grow_height else QtWidgets.QSizePolicy.Policy.Fixed,
@@ -755,20 +769,7 @@ class ProtocolBuilderQt(QtCore.QObject):
         pal.setColor(QtGui.QPalette.ColorRole.PlaceholderText, QtGui.QColor("#9aa0a6"))
         combo.setPalette(pal)
 
-    def _register_combo_popup(self, combo: QtWidgets.QComboBox) -> None:
-        le = combo.lineEdit()
-        if le is None:
-            return
-        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        le.installEventFilter(self)
-        self._combo_popup_targets.add(combo)
-
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
-        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
-            for combo in self._combo_popup_targets:
-                if combo.lineEdit() is obj:
-                    combo.showPopup()
-                    return True
         if event.type() == QtCore.QEvent.Type.Resize and obj in self._scroll_body_by_viewport:
             try:
                 body = self._scroll_body_by_viewport[obj]
@@ -813,10 +814,18 @@ class ProtocolBuilderQt(QtCore.QObject):
             self._set_widget_bg(b.widget, QtGui.QColor("#FF95A8") if not (rmin <= val <= rmax) else None)
 
     def _set_widget_bg(self, w: QtWidgets.QWidget, color: QtGui.QColor | None) -> None:
+        base = w.property("base_border_style")
+        base_style = str(base) if isinstance(base, str) else ""
         if color is None:
-            w.setStyleSheet("")
+            if base_style:
+                w.setStyleSheet(base_style)
+            else:
+                w.setStyleSheet("")
             return
-        w.setStyleSheet(f"background: {color.name()};")
+        if base_style:
+            w.setStyleSheet(f"{base_style} background: {color.name()};")
+        else:
+            w.setStyleSheet(f"background: {color.name()};")
 
     def _update_hidden(self, trigger_field_id: int) -> None:
         if trigger_field_id not in self.hidden_by_trigger:

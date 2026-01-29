@@ -184,14 +184,15 @@ class MainWindow(QtWidgets.QMainWindow):
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.setSpacing(8)
         btn_row.setContentsMargins(0, 0, 0, 0)
+        # Центрируем блок кнопок, но сами кнопки не растягиваем
+        btn_row.addStretch(1)
         self.add_patient_btn = QtWidgets.QPushButton("Добавить")
         self.add_patient_btn.setStyleSheet(
             "QPushButton { background: #4CAF50; color: white; padding: 6px 10px; border: 2px solid #9aa0a6; border-radius: 6px; }"
             "QPushButton:hover, QPushButton:focus { border-color: #007bff; }"
         )
-        self.add_patient_btn.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
-        )
+        # При расширении левой панели кнопки не должны растягиваться
+        self.add_patient_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.add_patient_btn.clicked.connect(self._add_patient)
         btn_row.addWidget(self.add_patient_btn)
 
@@ -200,9 +201,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "QPushButton { background: #FF9800; color: white; padding: 6px 10px; border: 2px solid #9aa0a6; border-radius: 6px; }"
             "QPushButton:hover, QPushButton:focus { border-color: #007bff; }"
         )
-        self.edit_patient_btn.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
-        )
+        self.edit_patient_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.edit_patient_btn.clicked.connect(self._edit_patient)
         btn_row.addWidget(self.edit_patient_btn)
 
@@ -211,11 +210,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "QPushButton { background: #F44336; color: white; padding: 6px 10px; border: 2px solid #9aa0a6; border-radius: 6px; }"
             "QPushButton:hover, QPushButton:focus { border-color: #007bff; }"
         )
-        self.delete_patient_btn.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed
-        )
+        self.delete_patient_btn.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.delete_patient_btn.clicked.connect(self._delete_patient)
         btn_row.addWidget(self.delete_patient_btn)
+        btn_row.addStretch(1)
         header_layout.addLayout(btn_row)
 
         left_layout.addWidget(header)
