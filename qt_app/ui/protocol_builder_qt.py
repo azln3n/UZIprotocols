@@ -652,12 +652,22 @@ class ProtocolBuilderQt(QtCore.QObject):
                 "QPlainTextEdit:focus { border: 2px solid #007bff; padding: 3px 5px; }"
             )
             ta.setMinimumHeight(80)
-            # Перенос по словам и выравнивание по ширине
+            # Перенос по словам, выравнивание по ширине, межстрочный интервал (как в словарях)
+            _LINE_HEIGHT_RATIO = 0.85
             _doc = ta.document()
             _to = QtGui.QTextOption()
             _to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
             _to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
             _doc.setDefaultTextOption(_to)
+            try:
+                _bf = QtGui.QTextBlockFormat()
+                _bf.setLineHeight(
+                    _LINE_HEIGHT_RATIO,
+                    QtGui.QTextBlockFormat.LineHeightTypes.ProportionalHeight,
+                )
+                _doc.setDefaultTextBlockFormat(_bf)
+            except Exception:
+                pass
 
             scroll_area = QtWidgets.QScrollArea()
             scroll_area.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)

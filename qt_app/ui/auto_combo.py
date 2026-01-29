@@ -5,6 +5,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 _POPUP_ITEM_PADDING = "padding: 6px 12px;"
 _DISPLAY_TEXT_PAD_X = 8
+# Межстрочный интервал 85% (одинаково с полем шаблонного текста)
+_LINE_HEIGHT_RATIO = 0.85
 
 
 class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
@@ -58,6 +60,15 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
         to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
         to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
         doc.setDefaultTextOption(to)
+        try:
+            bf = QtGui.QTextBlockFormat()
+            bf.setLineHeight(
+                _LINE_HEIGHT_RATIO,
+                QtGui.QTextBlockFormat.LineHeightTypes.ProportionalHeight,
+            )
+            doc.setDefaultTextBlockFormat(bf)
+        except Exception:
+            pass
         doc.setPlainText(opt.text)
         doc.setTextWidth(width)
         height = int(doc.size().height()) + 6
