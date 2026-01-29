@@ -34,8 +34,8 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
         else:
             painter.setPen(opt.palette.color(QtGui.QPalette.ColorRole.Text))
         text_opt = QtGui.QTextOption()
-        text_opt.setWrapMode(QtGui.QTextOption.WrapMode.WrapAnywhere)
-        text_opt.setAlignment(opt.displayAlignment)
+        text_opt.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        text_opt.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
         painter.drawText(QtCore.QRectF(text_rect), opt.text, text_opt)
         painter.restore()
 
@@ -54,6 +54,10 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
         width = max(120, width or 220)
         doc = QtGui.QTextDocument()
         doc.setDefaultFont(opt.font)
+        to = QtGui.QTextOption()
+        to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+        doc.setDefaultTextOption(to)
         doc.setPlainText(opt.text)
         doc.setTextWidth(width)
         height = int(doc.size().height()) + 6
