@@ -221,6 +221,7 @@ class ProtocolArea(QtWidgets.QWidget):
         items = list_study_types()
         for it in items:
             self.study_combo.addItem(it.name, it.id)
+        self.study_combo.setCurrentIndex(-1)  # изначально пустой выбор
 
     def set_patient(self, patient_id: int | None) -> None:
         self.patient_id = patient_id
