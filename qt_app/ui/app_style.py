@@ -179,6 +179,33 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           selection-color: #ffffff;
           outline: 0;
         }
+
+        /* Скроллбар как в окне протокола: узкий, светло-зелёный */
+        QScrollBar:vertical {
+          width: 12px;
+          background: #CCE6D4;
+          border: none;
+          margin: 0;
+        }
+        QScrollBar::handle:vertical {
+          background: #9fccb0;
+          min-height: 20px;
+          border-radius: 6px;
+          margin: 2px;
+        }
+        QScrollBar::handle:vertical:hover {
+          background: #7fb89a;
+        }
+        QScrollBar::handle:vertical:pressed {
+          background: #6ba888;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+          height: 0px;
+          background: none;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+          background: none;
+        }
         """
     )
 

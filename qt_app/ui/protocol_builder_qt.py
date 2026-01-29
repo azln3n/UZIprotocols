@@ -111,6 +111,22 @@ class FieldBinding:
                 w.setTime(qt)
 
 
+class _ResizeFilter(QtCore.QObject):
+    """Вызывает callback при Resize виджета (для подгонки ширины шаблонного поля под viewport)."""
+
+    def __init__(self, parent: QtCore.QObject, callback):
+        super().__init__(parent)
+        self._callback = callback
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        if event.type() == QtCore.QEvent.Type.Resize:
+            try:
+                self._callback()
+            except Exception:
+                pass
+        return super().eventFilter(obj, event)
+
+
 class CollapsibleGroupBox(QtWidgets.QWidget):
     def __init__(self, title: str, *, expanded: bool = False, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent)
@@ -582,6 +598,10 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.setCurrentText("")
             if self._read_only:
                 cb.setEnabled(False)
+            # Ползунок в выпадающем списке при большом числе значений
+            _view = cb.view()
+            if _view is not None:
+                _view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             w = cb
             grow_height = False
         elif t == "шаблон":
@@ -608,16 +628,50 @@ class ProtocolBuilderQt(QtCore.QObject):
                 cb.setEnabled(False)
 
             ta = QtWidgets.QPlainTextEdit()
-            # Высота должна выглядеть как "3 обычных строки" (комбобокс + поле ниже).
-            # Считаем динамически от реальной высоты комбобокса, чтобы на разных темах/шрифтах
-            # визуально совпадало.
             ta.setPlaceholderText("")
             if self._read_only:
                 ta.setReadOnly(True)
-            # Скроллбар при необходимости
-            ta.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            # Скролл — через QScrollArea (как в окне протокола), чтобы была каретка
+            ta.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             ta.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             ta.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
+            ta.setMinimumHeight(80)
+
+            scroll_area = QtWidgets.QScrollArea()
+            scroll_area.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+            scroll_area.setFixedHeight(200)  # поле всегда одной высоты, скроллбар при переполнении
+            scroll_area.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            scroll_area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            scroll_area.setWidget(ta)
+            scroll_area.setStyleSheet("QScrollArea { border: 0; background: transparent; }")
+            # Виджет внутри не растягиваем — высота по контенту, чтобы скроллбар появился
+            scroll_area.setWidgetResizable(False)
+
+            # Фиксированная высота области (как у окна протокола) — поле не меняет размер
+            _template_area_height = 200
+
+            def _update_template_scroll_height() -> None:
+                # Внутренний виджет не меньше высоты области; растёт только при переполнении
+                line_count = max(1, ta.document().lineCount())
+                line_h = ta.fontMetrics().height()
+                doc_h = line_count * line_h + 8
+                ta.setMinimumHeight(max(_template_area_height, min(2000, doc_h)))
+                ta.setFixedHeight(ta.minimumHeight())
+
+            def _update_template_ta_width() -> None:
+                vp = scroll_area.viewport()
+                if vp is not None and vp.width() > 0:
+                    ta.setMinimumWidth(vp.width())
+                    ta.setFixedWidth(vp.width())
+
+            ta.setMinimumHeight(_template_area_height)
+            ta.setFixedHeight(_template_area_height)
+            ta.document().contentsChanged.connect(_update_template_scroll_height)
+            scroll_area.viewport().installEventFilter(
+                _ResizeFilter(scroll_area.viewport(), _update_template_ta_width)
+            )
+            QtCore.QTimer.singleShot(50, _update_template_ta_width)
+
             cb.setStyleSheet("border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;")
 
             def _append_value(text: str) -> None:
@@ -634,26 +688,13 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.activated.connect(lambda _idx, c=cb: _append_value(c.currentText()))
             cb.setProperty("template_text_widget", ta)
 
-            # Layout: комбобокс справа от названия, текстовое поле ниже
+            # Layout: комбобокс справа от названия, область прокрутки с текстом ниже
             inner = QtWidgets.QWidget()
             vlayout = QtWidgets.QVBoxLayout(inner)
             vlayout.setContentsMargins(0, 0, 0, 0)
             vlayout.setSpacing(6)
             vlayout.addWidget(cb, 0)
-            vlayout.addWidget(ta, 0)
-
-            def _sync_template_heights() -> None:
-                # "Обычная строка" = высота комбобокса в текущем стиле
-                base_h = int(cb.sizeHint().height() or 26)
-                spacing = int(vlayout.spacing() or 0)
-                target_total = base_h * 5
-                ta_h = max(24, target_total - base_h - spacing)
-                ta.setFixedHeight(int(ta_h))
-                # фиксируем общую высоту блока, чтобы всегда выглядело как 3 строки
-                inner.setMinimumHeight(int(target_total))
-                inner.setMaximumHeight(int(target_total))
-
-            QtCore.QTimer.singleShot(0, _sync_template_heights)
+            vlayout.addWidget(scroll_area, 0)
             w = inner
             apply_border = False
             grow_height = True
