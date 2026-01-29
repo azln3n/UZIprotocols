@@ -179,11 +179,10 @@ class PatientDialog(QtWidgets.QDialog):
         self._birth_min_date = QtCore.QDate(1900, 1, 1)
         self.birth_date.setMinimumDate(self._birth_min_date)
         self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
-        self.birth_date.setSpecialValueText("ДД.ММ.ГГГГ")
+        # self.birth_date.setSpecialValueText("ДД.ММ.ГГГГ")
         self.birth_date.setDate(self._birth_min_date)
-        # Важно: не применять "частичные" значения во время набора (иначе возможны странные артефакты
-        # при открытом календаре на некоторых Windows-сборках).
-        self.birth_date.setKeyboardTracking(False)
+        # True: возраст пересчитывается сразу при изменении даты (без Tab/клика).
+        self.birth_date.setKeyboardTracking(True)
         self.birth_date.dateChanged.connect(lambda _d: (self._refresh_age(), self._refresh_save_state()))
         # Не трогаем lineEdit() валидатором: у QDateEdit есть свой встроенный валидатор/парсер.
         # Подмена валидатора ломает ввод и может приводить к значениям вида -2147483648.
