@@ -157,9 +157,6 @@ class CollapsibleGroupBox(QtWidgets.QWidget):
               font-weight: bold;
               font-size: 12pt;
               padding: 8px 10px;
-              /* Чтобы "шапка" группы заканчивалась там же, где и поля (с небольшим отступом) */
-              margin-left: 6px;
-              margin-right: 6px;
               border: 1px solid #bbbbbb;
               border-radius: 4px;
               text-align: left;
