@@ -578,6 +578,7 @@ class ProtocolBuilderQt(QtCore.QObject):
             w = te
         elif t == "словарь":
             cb = AutoComboBox(max_popup_items=30)
+            cb.setFont(QtGui.QFont("Arial", 12))
             # Словарь: обычный комбобокс, но значение можно отредактировать (ввод своего значения).
             cb.setEditable(True)
             if cb.lineEdit():
@@ -602,10 +603,12 @@ class ProtocolBuilderQt(QtCore.QObject):
             _view = cb.view()
             if _view is not None:
                 _view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                _view.setFont(QtGui.QFont("Arial", 12))
             w = cb
             grow_height = False
         elif t == "шаблон":
             cb = AutoComboBox(max_popup_items=30)
+            cb.setFont(QtGui.QFont("Arial", 12))
             cb.setEditable(True)
             if cb.lineEdit():
                 cb.lineEdit().setReadOnly(True)
@@ -626,8 +629,12 @@ class ProtocolBuilderQt(QtCore.QObject):
             self._setup_combo_placeholder(cb, "")
             if self._read_only:
                 cb.setEnabled(False)
+            _tpl_view = cb.view()
+            if _tpl_view is not None:
+                _tpl_view.setFont(QtGui.QFont("Arial", 12))
 
             ta = QtWidgets.QPlainTextEdit()
+            ta.setFont(QtGui.QFont("Arial", 12))
             ta.setPlaceholderText("")
             if self._read_only:
                 ta.setReadOnly(True)
