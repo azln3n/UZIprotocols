@@ -104,32 +104,17 @@ class _GripSplitterHandle(QtWidgets.QSplitterHandle):
 
     def paintEvent(self, event: QtGui.QPaintEvent) -> None:  # noqa: N802 (Qt naming)
         painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
 
-        # Прозрачный фон (не рисуем "полосу")
+        # Прозрачный фон
         painter.fillRect(self.rect(), QtCore.Qt.GlobalColor.transparent)
 
-        # Маленький грип по центру
-        w = max(8, int(self.width()))
-        grip_h = 44
-        grip_w = min(10, w)
+        # Вертикальная линия
         r = self.rect()
         cx = r.center().x()
-        cy = r.center().y()
-        grip = QtCore.QRect(int(cx - grip_w // 2), int(cy - grip_h // 2), int(grip_w), int(grip_h))
-
-        bg = QtGui.QColor("#007bff") if self._hover else QtGui.QColor("#c0c0c0")
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(bg)
-        painter.drawRoundedRect(grip, 5, 5)
-
-        # Три точки внутри (как "иконка для растяжения")
-        dot = QtGui.QColor("#ffffff")
-        painter.setBrush(dot)
-        dot_r = 2
-        spacing = 10
-        for i in (-1, 0, 1):
-            painter.drawEllipse(QtCore.QPoint(int(cx), int(cy + i * spacing)), dot_r, dot_r)
+        line_color = QtGui.QColor("#666")
+        painter.setPen(QtGui.QPen(line_color, 2))
+        painter.drawLine(int(cx), r.top(), int(cx), r.bottom())
 
 
 class _GripSplitter(QtWidgets.QSplitter):
@@ -153,8 +138,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         splitter = _GripSplitter(QtCore.Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
-        # Шире для удобного захвата, но визуально рисуем только маленький грип по центру.
-        splitter.setHandleWidth(14)
+        splitter.setHandleWidth(6)
 
         # ===== Left: patients list =====
         left = QtWidgets.QWidget()

@@ -205,7 +205,6 @@ class ProtocolArea(QtWidgets.QWidget):
             "Область протокола.\nВыберите пациента и тип исследования, затем нажмите «Начать».",
             alignment=QtCore.Qt.AlignmentFlag.AlignCenter,
         )
-        # По скринам: без пунктирной рамки (она выглядит как "лишняя линия/контур")
         self.placeholder.setStyleSheet("color: #666; padding: 20px;")
         self.body_stack.addWidget(self.placeholder)
         body_container = QtWidgets.QWidget()
