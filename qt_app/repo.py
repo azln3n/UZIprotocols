@@ -999,35 +999,38 @@ def delete_field(field_id: int) -> None:
 
 
 def move_field(field_id: int, direction: int) -> None:
-    """direction -1 up, +1 down within same group & column."""
+    """direction -1 up, +1 down by position in the table (column_num, display_order).
+    Swaps with the previous/next row even across columns, so arrow up/down matches UI."""
     with connect() as conn:
         cur = conn.cursor()
-        row = cur.execute("SELECT group_id, column_num FROM fields WHERE id = ?", (int(field_id),)).fetchone()
+        row = cur.execute("SELECT group_id FROM fields WHERE id = ?", (int(field_id),)).fetchone()
         if not row:
             return
         group_id = int(row["group_id"])
-        col = int(row["column_num"] or 1)
         rows = cur.execute(
             """
-            SELECT id, display_order
+            SELECT id, column_num, display_order
             FROM fields
-            WHERE group_id = ? AND column_num = ?
-            ORDER BY display_order, id
+            WHERE group_id = ?
+            ORDER BY column_num, display_order, id
             """,
-            (group_id, col),
+            (group_id,),
         ).fetchall()
         ids = [int(r["id"]) for r in rows]
         if int(field_id) not in ids:
             return
         i = ids.index(int(field_id))
         j = i + direction
-        if j < 0 or j >= len(ids):
+        if j < 0 or j >= len(rows):
             return
-        a_id, b_id = ids[i], ids[j]
-        a_order = int(rows[i]["display_order"] or 0)
-        b_order = int(rows[j]["display_order"] or 0)
-        cur.execute("UPDATE fields SET display_order = ? WHERE id = ?", (b_order, a_id))
-        cur.execute("UPDATE fields SET display_order = ? WHERE id = ?", (a_order, b_id))
+        a_id = int(rows[i]["id"])
+        b_id = int(rows[j]["id"])
+        a_col = int(rows[i]["column_num"] or 1)
+        a_ord = int(rows[i]["display_order"] or 0)
+        b_col = int(rows[j]["column_num"] or 1)
+        b_ord = int(rows[j]["display_order"] or 0)
+        cur.execute("UPDATE fields SET column_num = ?, display_order = ? WHERE id = ?", (b_col, b_ord, a_id))
+        cur.execute("UPDATE fields SET column_num = ?, display_order = ? WHERE id = ?", (a_col, a_ord, b_id))
         conn.commit()
 
 
