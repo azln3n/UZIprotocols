@@ -127,9 +127,13 @@ class AutoComboBox(QtWidgets.QComboBox):
         le = self.lineEdit()
         if le is None:
             return
+        # В режиме multiline_display текст рисуем в paintEvent; lineEdit не умеет переносить строк,
+        # поэтому скрываем его, иначе перекрывает обёрнутый текст.
+        if self._multiline_enabled():
+            le.hide()
         # Словари и шаблоны: не трогаем lineEdit (нет фильтра, нет "руки") — тогда курсор
         # ставится в место клика и текст можно редактировать с любой позиции, а не только с конца.
-        if not self.property("open_only_on_arrow"):
+        elif not self.property("open_only_on_arrow"):
             le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
             le.installEventFilter(self)
         self._le_filter_installed = True

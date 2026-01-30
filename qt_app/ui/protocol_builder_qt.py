@@ -576,7 +576,6 @@ class ProtocolBuilderQt(QtCore.QObject):
         elif t == "словарь":
             cb = AutoComboBox(max_popup_items=30)
             cb.setFont(QtGui.QFont("Arial", 12))
-            # Словарь: обычный комбобокс, но значение можно отредактировать (ввод своего значения).
             cb.setEditable(True)
             if cb.lineEdit():
                 cb.lineEdit().setReadOnly(False)
@@ -592,24 +591,30 @@ class ProtocolBuilderQt(QtCore.QObject):
             for v in vals:
                 cb.addItem(str(v["value"]))
             cb.setCurrentIndex(-1)
-            # Пусто, когда ничего не выбрано
             cb.setCurrentText("")
             if self._read_only:
                 cb.setEnabled(False)
-            # Ползунок в выпадающем списке при большом числе значений
             _view = cb.view()
             if _view is not None:
                 _view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                 _view.setFont(QtGui.QFont("Arial", 12))
-            # Серая рамка, синяя при фокусе и при открытом списке (:on)
             cb.setStyleSheet(
                 "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
                 "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
             )
-            cb.setProperty("open_only_on_arrow", True)  # открытие только по стрелке, без мерцания
+            cb.setProperty("open_only_on_arrow", True)
+            # Многострочное отображение: текст переносится, высота поля растёт (до max_display_height).
+            cb.setProperty("multiline_display", True)
+            cb.setProperty("max_display_height", 300)
+            _dict_le = cb.lineEdit()
+            if _dict_le is not None:
+                _dict_le.hide()  # иначе однострочный lineEdit перекрывает обёрнутый текст
+            cb.currentTextChanged.connect(cb.adjust_multiline_height)
+            QtCore.QTimer.singleShot(0, cb.adjust_multiline_height)
+
             w = cb
             grow_height = False
-            apply_border = False  # стиль уже задан выше, не перезаписывать
+            apply_border = False
         elif t == "шаблон":
             cb = AutoComboBox(max_popup_items=30)
             cb.setFont(QtGui.QFont("Arial", 12))
