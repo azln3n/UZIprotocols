@@ -89,9 +89,11 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           selection-color: #ffffff;
         }
 
-        /* NOTE: We intentionally do NOT style QAbstractSpinBox/QSpinBox/QDateEdit/QTimeEdit via QSS.
-           On some Windows setups any QSS on these widgets makes the arrows/icons disappear.
-           They will keep the native Fusion look (palette still applies). */
+        /* NOTE: We do NOT style QDateEdit/QTimeEdit themselves via QSS (arrows would disappear).
+           Only the inner QLineEdit gets padding so the text has 6px horizontal indent. */
+        QDateEdit QLineEdit, QTimeEdit QLineEdit {
+          padding: 4px 6px;
+        }
 
         /* ComboBox popup list must stay readable on any OS theme */
         QComboBox QAbstractItemView {

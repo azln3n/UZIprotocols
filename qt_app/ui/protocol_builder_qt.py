@@ -739,12 +739,18 @@ class ProtocolBuilderQt(QtCore.QObject):
             de = QtWidgets.QDateEdit()
             de.setCalendarPopup(True)
             de.setDisplayFormat("dd.MM.yyyy")
+            _le = de.lineEdit()
+            if _le is not None:
+                _le.setStyleSheet("padding: 4px 6px;")
             if self._read_only:
                 de.setEnabled(False)
             w = de
         elif t == "время":
             te = QtWidgets.QTimeEdit()
             te.setDisplayFormat("HH:mm")
+            _le = te.lineEdit()
+            if _le is not None:
+                _le.setStyleSheet("padding: 4px 6px;")
             if self._read_only:
                 te.setEnabled(False)
             w = te
@@ -799,12 +805,12 @@ class ProtocolBuilderQt(QtCore.QObject):
         if not grow_height:
             display_widget.setMinimumHeight(30)
         if apply_border:
-            # Рамка серая, при фокусе — синяя
+            # Рамка серая, при фокусе — синяя. QDateEdit/QTimeEdit не трогаем (стрелки слетают); отступ текста — в app_style (QDateEdit QLineEdit).
             _field_normal = "border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px;"
             _field_focus = "border: 2px solid #007bff; padding: 3px 5px;"
             _full = (
-                "QLineEdit, QPlainTextEdit, QDateEdit, QTimeEdit { " + _field_normal + " } "
-                "QLineEdit:focus, QPlainTextEdit:focus, QDateEdit:focus, QTimeEdit:focus { " + _field_focus + " }"
+                "QLineEdit, QPlainTextEdit { " + _field_normal + " } "
+                "QLineEdit:focus, QPlainTextEdit:focus { " + _field_focus + " }"
             )
             display_widget.setProperty("base_border_style", _full)
             display_widget.setStyleSheet(_full)
@@ -908,7 +914,7 @@ class ProtocolBuilderQt(QtCore.QObject):
         if base_style:
             w.setStyleSheet(
                 base_style
-                + " QLineEdit, QPlainTextEdit, QDateEdit, QTimeEdit { background: "
+                + " QLineEdit, QPlainTextEdit { background: "
                 + color.name()
                 + "; }"
             )

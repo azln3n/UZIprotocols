@@ -121,13 +121,19 @@ class PatientDialog(QtWidgets.QDialog):
             labels.append(lbl)
             return lbl
 
-        # Date / time (UX only)
+        # Date / time (UX only). Отступ текста — на внутреннем lineEdit(), чтобы Fusion не перебивал.
         input_h = 30
+        def _dt_line_edit_padding(dt_widget):
+            le = dt_widget.lineEdit()
+            if le is not None:
+                le.setStyleSheet("padding: 4px 6px;")
         self.exam_date = QtWidgets.QDateEdit()
         self.exam_date.setCalendarPopup(True)
         self.exam_date.setDisplayFormat("dd.MM.yyyy")
+        _dt_line_edit_padding(self.exam_date)
         self.exam_time = QtWidgets.QTimeEdit()
         self.exam_time.setDisplayFormat("HH:mm")
+        _dt_line_edit_padding(self.exam_time)
         now = QtCore.QDateTime.currentDateTime()
         self.exam_date.setDate(now.date())
         self.exam_time.setTime(now.time())
@@ -172,6 +178,7 @@ class PatientDialog(QtWidgets.QDialog):
         self.birth_date = QtWidgets.QDateEdit()
         self.birth_date.setCalendarPopup(True)
         self.birth_date.setDisplayFormat("dd.MM.yyyy")
+        _dt_line_edit_padding(self.birth_date)
         # По просьбе: дата рождения + возраст в одной строке, поля компактнее
         self.birth_date.setMinimumWidth(130)
         self.birth_date.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)

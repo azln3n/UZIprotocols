@@ -52,11 +52,16 @@ class SearchDialog(QtWidgets.QDialog):
         self.use_period = QtWidgets.QCheckBox("Период с:")
         self.use_period.setChecked(False)
         grid.addWidget(self.use_period, 1, 0, alignment=QtCore.Qt.AlignmentFlag.AlignLeft)
+        def _dt_line_edit_padding(dt_widget):
+            le = dt_widget.lineEdit()
+            if le is not None:
+                le.setStyleSheet("padding: 4px 6px;")
         self.date_from = QtWidgets.QDateEdit()
         self.date_from.setCalendarPopup(True)
         self.date_from.setDisplayFormat("dd.MM.yyyy")
         self.date_from.setDate(QtCore.QDate.currentDate())
         self.date_from.setMinimumWidth(130)
+        _dt_line_edit_padding(self.date_from)
         grid.addWidget(self.date_from, 1, 1)
 
         grid.addWidget(QtWidgets.QLabel("по:"), 1, 2)
@@ -65,6 +70,7 @@ class SearchDialog(QtWidgets.QDialog):
         self.date_to.setDisplayFormat("dd.MM.yyyy")
         self.date_to.setDate(QtCore.QDate.currentDate())
         self.date_to.setMinimumWidth(130)
+        _dt_line_edit_padding(self.date_to)
         grid.addWidget(self.date_to, 1, 3)
 
         grid.addWidget(QtWidgets.QLabel("Тип исследования:"), 2, 0)
