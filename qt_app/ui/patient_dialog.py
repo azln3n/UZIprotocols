@@ -186,9 +186,9 @@ class PatientDialog(QtWidgets.QDialog):
         self._birth_min_date = QtCore.QDate(1900, 1, 1)
         self.birth_date.setMinimumDate(self._birth_min_date)
         self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
-        # Плейсхолдер показываем через lineEdit, без specialValueText
+        # Без setSpecialValueText — иначе ввод с клавиатуры ломается (цифры дописываются после текста).
+        # "Пустая" дата = 01.01.1900; подсказка формата — в placeholder lineEdit.
         self.birth_date.setSpecialValueText("")
-        # self.birth_date.setSpecialValueText("ДД.ММ.ГГГГ")
         self.birth_date.setDate(self._birth_min_date)
         # True: возраст пересчитывается сразу при изменении даты (без Tab/клика).
         self.birth_date.setKeyboardTracking(True)

@@ -127,8 +127,11 @@ class AutoComboBox(QtWidgets.QComboBox):
         le = self.lineEdit()
         if le is None:
             return
-        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        le.installEventFilter(self)
+        # Словари и шаблоны: не трогаем lineEdit (нет фильтра, нет "руки") — тогда курсор
+        # ставится в место клика и текст можно редактировать с любой позиции, а не только с конца.
+        if not self.property("open_only_on_arrow"):
+            le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+            le.installEventFilter(self)
         self._le_filter_installed = True
 
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
