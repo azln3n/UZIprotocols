@@ -104,7 +104,7 @@ class AutoComboBox(QtWidgets.QComboBox):
                 _item_pad = (_pad if isinstance(_pad, str) and _pad.strip() else _POPUP_ITEM_PADDING)
                 view.setStyleSheet(
                     "QListView { background: #ffffff; }"
-                    f"QListView::item {{ {_item_pad} background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; }}"
+                    f"QListView::item {{ {_item_pad} background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; font-size: 12pt; }}"
                     "QListView::item:hover { background: #e6f0ff; }"
                     "QListView::item:selected { background: #1e88e5; color: #ffffff; }"
                 )
@@ -317,7 +317,7 @@ class AutoComboBox(QtWidgets.QComboBox):
                     item_padding = (_pad if isinstance(_pad, str) and _pad.strip() else _POPUP_ITEM_PADDING)
                     view.setStyleSheet(
                         "QListView { background: #ffffff; }"
-                        f"QListView::item {{ {item_padding} background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; }}"
+                        f"QListView::item {{ {item_padding} background: #ffffff; color: #000000; border-bottom: 1px solid #e0e0e0; font-size: 12pt; }}"
                         "QListView::item:hover { background: #e6f0ff; }"
                         "QListView::item:selected { background: #1e88e5; color: #ffffff; }"
                     )
