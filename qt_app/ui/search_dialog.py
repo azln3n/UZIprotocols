@@ -19,7 +19,8 @@ class SearchDialog(QtWidgets.QDialog):
         super().__init__(parent)
         self.institution_id = institution_id
         self.setWindowTitle("Поиск")
-        self.resize(520, 180)
+        self.resize(520, 280)
+        self.setMinimumHeight(260)
         self.setModal(True)
 
         self.result: SearchResult | None = None
@@ -32,16 +33,20 @@ class SearchDialog(QtWidgets.QDialog):
         root.setSpacing(10)
 
         box = QtWidgets.QGroupBox("Параметры поиска")
+        box.setMinimumHeight(200)
         grid = QtWidgets.QGridLayout(box)
-        grid.setHorizontalSpacing(12)
-        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(14)
 
+        _row_h = 32
         grid.addWidget(QtWidgets.QLabel("ФИО пациента:"), 0, 0)
         self.fio = QtWidgets.QLineEdit()
+        self.fio.setMinimumHeight(_row_h)
         grid.addWidget(self.fio, 0, 1)
 
         grid.addWidget(QtWidgets.QLabel("ИИН:"), 0, 2)
         self.iin = QtWidgets.QLineEdit()
+        self.iin.setMinimumHeight(_row_h)
         self.iin.setMaxLength(12)
         rx = QtCore.QRegularExpression(r"^\d{0,12}$")
         self.iin.setValidator(QtGui.QRegularExpressionValidator(rx, self.iin))
@@ -60,7 +65,8 @@ class SearchDialog(QtWidgets.QDialog):
         self.date_from.setCalendarPopup(True)
         self.date_from.setDisplayFormat("dd.MM.yyyy")
         self.date_from.setDate(QtCore.QDate.currentDate())
-        self.date_from.setMinimumWidth(130)
+        self.date_from.setMinimumWidth(140)
+        self.date_from.setMinimumHeight(_row_h)
         _dt_line_edit_padding(self.date_from)
         grid.addWidget(self.date_from, 1, 1)
 
@@ -69,13 +75,15 @@ class SearchDialog(QtWidgets.QDialog):
         self.date_to.setCalendarPopup(True)
         self.date_to.setDisplayFormat("dd.MM.yyyy")
         self.date_to.setDate(QtCore.QDate.currentDate())
-        self.date_to.setMinimumWidth(130)
+        self.date_to.setMinimumWidth(140)
+        self.date_to.setMinimumHeight(_row_h)
         _dt_line_edit_padding(self.date_to)
         grid.addWidget(self.date_to, 1, 3)
 
         grid.addWidget(QtWidgets.QLabel("Тип исследования:"), 2, 0)
         self.study = AutoComboBox(max_popup_items=30)
         self.study.setMinimumWidth(260)
+        self.study.setMinimumHeight(_row_h)
         self.study.addItem("Все", None)
         for it in list_study_types():
             self.study.addItem(it.name, it.id)
