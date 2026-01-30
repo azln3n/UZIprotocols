@@ -606,6 +606,7 @@ class ProtocolBuilderQt(QtCore.QObject):
                 "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
                 "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
             )
+            cb.setProperty("open_only_on_arrow", True)  # открытие только по стрелке, без мерцания
             w = cb
             grow_height = False
             apply_border = False  # стиль уже задан выше, не перезаписывать
@@ -720,6 +721,7 @@ class ProtocolBuilderQt(QtCore.QObject):
 
             cb.activated.connect(lambda _idx, c=cb: _append_value(c.currentText()))
             cb.setProperty("template_text_widget", ta)
+            cb.setProperty("open_only_on_arrow", True)  # открытие только по стрелке, без мерцания
 
             # Layout: комбобокс справа от названия, область прокрутки с текстом ниже
             inner = QtWidgets.QWidget()

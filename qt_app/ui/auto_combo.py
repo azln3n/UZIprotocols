@@ -120,10 +120,37 @@ class AutoComboBox(QtWidgets.QComboBox):
         self._ensure_lineedit_filter()
 
     def _ensure_lineedit_filter(self) -> None:
-        # Раньше открывали попап по клику в поле — отключено: только по стрелке комбобокса.
         if self._le_filter_installed:
             return
+        le = self.lineEdit()
+        if le is None:
+            return
+        le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        le.installEventFilter(self)
         self._le_filter_installed = True
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        # Для словарей и шаблонов (open_only_on_arrow) попап только по стрелке; для остальных — по клику и клавишам.
+        if self.property("open_only_on_arrow"):
+            return super().eventFilter(obj, event)
+        le = self.lineEdit()
+        if le is not None and obj is le:
+            et = event.type()
+            if et == QtCore.QEvent.Type.MouseButtonPress:
+                try:
+                    self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+                except Exception:
+                    pass
+                self.showPopup()
+                return True
+            if et == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
+                key = event.key()
+                if key in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Up) or (
+                    key == QtCore.Qt.Key.Key_Space
+                ):
+                    self.showPopup()
+                    return True
+        return super().eventFilter(obj, event)
 
     def _force_popup_below(self) -> None:
         view = self.view()
