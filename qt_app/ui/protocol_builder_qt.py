@@ -648,6 +648,8 @@ class ProtocolBuilderQt(QtCore.QObject):
             ta = QtWidgets.QPlainTextEdit()
             ta.setFont(QtGui.QFont("Arial", 12))
             ta.setPlaceholderText("")
+            # Явно перенос по ширине виджета — иначе на части машин длинный текст обрезается
+            ta.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.WidgetWidth)
             if self._read_only:
                 ta.setReadOnly(True)
             # Скролл — через QScrollArea (как в окне протокола), чтобы была каретка
@@ -697,9 +699,11 @@ class ProtocolBuilderQt(QtCore.QObject):
 
             def _update_template_ta_width() -> None:
                 vp = scroll_area.viewport()
-                if vp is not None and vp.width() > 0:
-                    ta.setMinimumWidth(vp.width())
-                    ta.setFixedWidth(vp.width())
+                if vp is not None:
+                    # Не ставить ширину 0 — иначе на части машин текст не переносится, обрезается
+                    w = max(300, vp.width())
+                    ta.setMinimumWidth(w)
+                    ta.setFixedWidth(w)
 
             ta.setMinimumHeight(_template_area_height)
             ta.setFixedHeight(_template_area_height)

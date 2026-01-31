@@ -123,10 +123,12 @@ class PatientDialog(QtWidgets.QDialog):
 
         # Date / time (UX only). Отступ текста — на внутреннем lineEdit(), чтобы Fusion не перебивал.
         input_h = 30
+        dt_input_h = 34  # выше обычного поля: 6px+6px padding + высота строки, чтобы дата не обрезалась
         def _dt_line_edit_padding(dt_widget):
             le = dt_widget.lineEdit()
             if le is not None:
-                le.setStyleSheet("padding: 4px 6px;")
+                # Вертикальные отступы 6px сверху и снизу, чтобы дата не обрезалась
+                le.setStyleSheet("padding: 1px 6px 1px 6px;")
         self.exam_date = QtWidgets.QDateEdit()
         self.exam_date.setCalendarPopup(True)
         self.exam_date.setDisplayFormat("dd.MM.yyyy")
@@ -143,8 +145,8 @@ class PatientDialog(QtWidgets.QDialog):
         dt_row.setSpacing(12)
         self.exam_date.setMinimumWidth(180)
         self.exam_time.setMinimumWidth(110)
-        self.exam_date.setMinimumHeight(input_h)
-        self.exam_time.setMinimumHeight(input_h)
+        self.exam_date.setMinimumHeight(dt_input_h)
+        self.exam_time.setMinimumHeight(dt_input_h)
         dt_row.addWidget(self.exam_date, 1)
         dt_row.addWidget(self.exam_time, 0)
         dt_container = QtWidgets.QWidget()
@@ -183,7 +185,7 @@ class PatientDialog(QtWidgets.QDialog):
         # По просьбе: дата рождения + возраст в одной строке, поля компактнее
         self.birth_date.setMinimumWidth(148)
         self.birth_date.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
-        self.birth_date.setMinimumHeight(input_h)
+        self.birth_date.setMinimumHeight(dt_input_h)
         self._birth_min_date = QtCore.QDate(1900, 1, 1)
         self.birth_date.setMinimumDate(self._birth_min_date)
         self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
@@ -208,7 +210,7 @@ class PatientDialog(QtWidgets.QDialog):
         birth_age_row = QtWidgets.QWidget()
         bl = QtWidgets.QHBoxLayout(birth_age_row)
         bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(12)
+        bl.setSpacing(0)
         age_lbl = self._bold_label("Возраст:")
         age_lbl.setMinimumWidth(age_lbl.sizeHint().width())
         bl.addWidget(self.birth_date, 0)

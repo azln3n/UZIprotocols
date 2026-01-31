@@ -10,6 +10,7 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
     - фон окон aliceblue
     - синяя рамка при фокусе на любых полях
     """
+    # Явно Arial 12: на некоторых системах (напр. у заказчика) иначе подставляется Segoe UI
     app.setFont(QtGui.QFont("Arial", 12))
 
     # Причина "точек" в QTimeEdit/QDateEdit/QSpinBox — системный стиль Windows.
@@ -37,6 +38,15 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
     # Focus blue border: keep layout stable by compensating padding.
     app.setStyleSheet(
         """
+
+        QWidget {
+          font-family: "Arial";
+          font-size: 12pt;
+        }
+        QLabel {
+          qproperty-wordWrap: true;
+        }
+
         /* Buttons: ensure disabled looks disabled even if per-button stylesheet exists */
         QPushButton, QToolButton {
           padding: 6px 12px;
@@ -53,6 +63,11 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           color: #666666;
         }
 
+        /* Шрифт Arial 12 везде — иначе на части машин подставляется системный (напр. Segoe UI) */
+        QLabel, QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {
+          font-family: Arial;
+          font-size: 12pt;
+        }
         /* Inputs */
         QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {
           background: white;
@@ -83,6 +98,8 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           color: #000000;
         }
         QComboBox QLineEdit {
+          font-family: Arial;
+          font-size: 12pt;
           background: #ffffff;
           color: #000000;
           selection-background-color: #007bff;
@@ -90,13 +107,15 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         }
 
         /* NOTE: We do NOT style QDateEdit/QTimeEdit themselves via QSS (arrows would disappear).
-           Only the inner QLineEdit gets padding so the text has 6px horizontal indent. */
+           Inner QLineEdit: 6px padding on all sides so date/time text is not clipped top/bottom. */
         QDateEdit QLineEdit, QTimeEdit QLineEdit {
-          padding: 4px 6px;
+          padding: 6px 6px 6px 6px;
         }
 
         /* ComboBox popup list must stay readable on any OS theme */
         QComboBox QAbstractItemView {
+          font-family: Arial;
+          font-size: 12pt;
           background: #ffffff;
           color: #000000;
           selection-background-color: #007bff;
@@ -104,6 +123,8 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           outline: 0;
         }
         QComboBox QAbstractItemView::item {
+          font-family: Arial;
+          font-size: 12pt;
           padding: 6px 12px;
         }
         QComboBox QAbstractItemView::item:hover {
@@ -267,6 +288,21 @@ class _ButtonAutoSizeFilter(QtCore.QObject):
                                 w.setMinimumWidth(hint)
                         except Exception:
                             continue
+
+                # Длинные тексты должны переноситься (на части машин иначе обрезаются)
+                for w in obj.findChildren(QtWidgets.QPlainTextEdit):
+                    try:
+                        w.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.WidgetWidth)
+                    except Exception:
+                        pass
+
+                # QLabel: явно включаем перенос. QSS qproperty-wordWrap на части систем/разрешений
+                # не срабатывает (порядок применения, тема) — у заказчика слова могут обрезаться.
+                for lbl in obj.findChildren(QtWidgets.QLabel):
+                    try:
+                        lbl.setWordWrap(True)
+                    except Exception:
+                        pass
 
         return super().eventFilter(obj, event)
 
