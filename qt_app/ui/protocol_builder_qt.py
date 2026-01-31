@@ -390,7 +390,7 @@ class ProtocolBuilderQt(QtCore.QObject):
                         h_align = QtCore.Qt.AlignmentFlag.AlignLeft
                         v_align = (
                             QtCore.Qt.AlignmentFlag.AlignTop
-                            if meta.field_type == "шаблон"
+                            if meta.field_type in ("шаблон", "словарь")
                             else QtCore.Qt.AlignmentFlag.AlignVCenter
                         )
                         binding.label.setAlignment(h_align | v_align)
@@ -488,6 +488,11 @@ class ProtocolBuilderQt(QtCore.QObject):
                                 (left_b and left_b.meta.field_type == "шаблон")
                                 or (right_b and right_b.meta.field_type == "шаблон")
                             )
+                            row_has_dict = bool(
+                                (left_b and left_b.meta.field_type == "словарь")
+                                or (right_b and right_b.meta.field_type == "словарь")
+                            )
+                            row_has_tall = row_has_template or row_has_dict
                             for side, b in (("left", left_b), ("right", right_b)):
                                 if b is None:
                                     cell = QtWidgets.QWidget()
@@ -506,10 +511,10 @@ class ProtocolBuilderQt(QtCore.QObject):
                                 mw = mw_lf if side == "left" else mw_right
                                 if mw > 0:
                                     cell_l.setColumnMinimumWidth(0, mw)
-                                if row_has_template:
+                                if row_has_tall:
                                     b.label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
                                 cell_l.addWidget(b.label, 0, 0, 1, 1)
-                                if b.meta.field_type == "шаблон" or row_has_template:
+                                if b.meta.field_type == "шаблон" or row_has_tall:
                                     cell_l.addWidget(
                                         b.container, 0, 1, 1, 1, QtCore.Qt.AlignmentFlag.AlignTop
                                     )
