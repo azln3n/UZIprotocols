@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..repo import (
     DictionaryValueRow,
@@ -11,6 +11,35 @@ from ..repo import (
     update_dictionary_value,
 )
 from .auto_combo import WrapAnywhereDelegate
+
+
+class _TableWrapDelegate(WrapAnywhereDelegate):
+    def sizeHint(self, option: QtWidgets.QStyleOptionViewItem, index) -> QtCore.QSize:
+        try:
+            opt = QtWidgets.QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+            view = opt.widget
+            if isinstance(view, QtWidgets.QTableView):
+                try:
+                    width = int(view.columnWidth(index.column()))
+                except Exception:
+                    width = int(opt.rect.width() or 0)
+            else:
+                width = int(opt.rect.width() or 0)
+            width = max(60, width)
+            doc = QtGui.QTextDocument()
+            doc.setDefaultFont(opt.font)
+            to = QtGui.QTextOption()
+            to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+            to.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+            doc.setDefaultTextOption(to)
+            doc.setPlainText(opt.text)
+            doc.setTextWidth(width)
+            height = int(doc.size().height()) + 6
+            line_h = opt.fontMetrics().height()
+            return QtCore.QSize(width, max(height, line_h + 6))
+        except Exception:
+            return super().sizeHint(option, index)
 
 
 class DictionaryValuesDialog(QtWidgets.QDialog):
@@ -63,11 +92,20 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setWordWrap(True)
         self.table.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
-        self.table.setItemDelegate(WrapAnywhereDelegate(self.table))
+        self.table.setItemDelegateForColumn(1, _TableWrapDelegate(self.table))
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        self.table.verticalHeader().setDefaultSectionSize(28)
+        self.table.verticalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Fixed)
+        self.table.setSizeAdjustPolicy(QtWidgets.QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        try:
+            self.table.horizontalHeader().sectionResized.connect(
+                lambda *_: QtCore.QTimer.singleShot(0, self._refresh_row_heights)
+            )
+        except Exception:
+            pass
+        if self.table.viewport() is not None:
+            self.table.viewport().installEventFilter(self)
         root.addWidget(self.table, 1)
 
         footer = QtWidgets.QHBoxLayout()
@@ -87,11 +125,49 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
         for v in self._values:
             r = self.table.rowCount()
             self.table.insertRow(r)
-            self.table.setItem(r, 0, QtWidgets.QTableWidgetItem(str(v.display_order)))
+            it_order = QtWidgets.QTableWidgetItem(str(v.display_order))
+            it_order.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
+            self.table.setItem(r, 0, it_order)
             it = QtWidgets.QTableWidgetItem(v.value)
+            it.setTextAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
             it.setData(QtCore.Qt.ItemDataRole.UserRole, v.id)
             self.table.setItem(r, 1, it)
-        self.table.resizeRowsToContents()
+        self._refresh_row_heights()
+
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        if obj is self.table.viewport() and event.type() == QtCore.QEvent.Type.Resize:
+            QtCore.QTimer.singleShot(0, self._refresh_row_heights)
+        return super().eventFilter(obj, event)
+
+    def _refresh_row_heights(self) -> None:
+        try:
+            col_w = int(self.table.columnWidth(1) or 0)
+            col_w = max(60, col_w)
+            fm = self.table.fontMetrics()
+            min_h = fm.height() + 6
+            for row in range(self.table.rowCount()):
+                it = self.table.item(row, 1)
+                if it is None:
+                    continue
+                h = self._row_height_for_text(it.text(), col_w)
+                self.table.setRowHeight(row, max(min_h, h))
+        except Exception:
+            pass
+
+    def _row_height_for_text(self, text: str, width: int) -> int:
+        try:
+            doc = QtGui.QTextDocument()
+            doc.setDefaultFont(self.table.font())
+            to = QtGui.QTextOption()
+            to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+            to.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+            doc.setDefaultTextOption(to)
+            doc.setPlainText(text or "")
+            doc.setTextWidth(max(1, int(width) - 6))
+            return int(doc.size().height()) + 6
+        except Exception:
+            return 24
 
     def _current_value(self) -> DictionaryValueRow | None:
         row = self.table.currentRow()

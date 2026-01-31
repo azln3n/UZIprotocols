@@ -71,13 +71,15 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
         try:
             opt = QtWidgets.QStyleOptionViewItem(option)
             self.initStyleOption(opt, index)
-            width = int(opt.rect.width() or 0)
-            if isinstance(opt.widget, QtWidgets.QTableView) and width <= 0:
+            style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+            text_rect = style.subElementRect(QtWidgets.QStyle.SubElement.SE_ItemViewItemText, opt, opt.widget)
+            width = int(text_rect.width() or 0)
+            if width <= 0 and isinstance(opt.widget, QtWidgets.QTableView):
                 try:
                     width = int(opt.widget.columnWidth(index.column()))
                 except Exception:
                     pass
-            if isinstance(opt.widget, QtWidgets.QAbstractItemView) and width <= 0:
+            if width <= 0 and isinstance(opt.widget, QtWidgets.QAbstractItemView):
                 try:
                     vw = int(opt.widget.viewport().width())
                     if vw > 0:
@@ -87,7 +89,7 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
             check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
             if check_state is not None:
                 width -= 24
-            width = max(120, (width or 220))
+            width = max(60, (width or 220))
             doc = QtGui.QTextDocument()
             doc.setDefaultFont(opt.font)
             to = QtGui.QTextOption()
@@ -96,14 +98,10 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
             doc.setDefaultTextOption(to)
             doc.setPlainText(opt.text)
             doc.setTextWidth(width)
-            line_h = opt.fontMetrics().height()
             doc_h = int(doc.size().height())
-            # Однострочный пункт — высота как у комбобокса (padding 6+6 из стиля), чтобы список не был выше поля
-            if doc_h <= line_h * 1.3:
-                height = line_h + 12
-            else:
-                height = doc_h + 6
-            return QtCore.QSize(width, max(height, line_h + 12))
+            height = doc_h + 4
+            line_h = opt.fontMetrics().height()
+            return QtCore.QSize(width, max(height, line_h + 6))
         except Exception:
             return QtCore.QSize(220, 30)
 
