@@ -180,25 +180,21 @@ class PatientDialog(QtWidgets.QDialog):
         self.birth_date.setDisplayFormat("dd.MM.yyyy")
         _dt_line_edit_padding(self.birth_date)
         # По просьбе: дата рождения + возраст в одной строке, поля компактнее
-        self.birth_date.setMinimumWidth(130)
+        self.birth_date.setMinimumWidth(148)
         self.birth_date.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.birth_date.setMinimumHeight(input_h)
         self._birth_min_date = QtCore.QDate(1900, 1, 1)
         self.birth_date.setMinimumDate(self._birth_min_date)
         self.birth_date.setMaximumDate(QtCore.QDate.currentDate())
-        # Без setSpecialValueText — иначе ввод с клавиатуры ломается (цифры дописываются после текста).
-        # "Пустая" дата = 01.01.1900; подсказка формата — в placeholder lineEdit.
-        self.birth_date.setSpecialValueText("")
+        # "Пустая" дата = 01.01.1900; без фокуса показываем ДД.ММ.ГГГГ вместо 01.01.1900.
         self.birth_date.setDate(self._birth_min_date)
-        # True: возраст пересчитывается сразу при изменении даты (без Tab/клика).
         self.birth_date.setKeyboardTracking(True)
         self.birth_date.dateChanged.connect(lambda _d: (self._refresh_age(), self._refresh_save_state()))
-        # Не трогаем lineEdit() валидатором: у QDateEdit есть свой встроенный валидатор/парсер.
-        # Подмена валидатора ломает ввод и может приводить к значениям вида -2147483648.
         if self.birth_date.lineEdit():
-            self.birth_date.lineEdit().setPlaceholderText("ДД.ММ.ГГГГ")
-            # При фокусе с клавиатуры выделяем плейсхолдер, чтобы ввод сразу заменял дату
-            self.birth_date.lineEdit().installEventFilter(self)
+            le = self.birth_date.lineEdit()
+            le.installEventFilter(self)
+            # Как только виджет подставил 01.01.1900 — без фокуса показываем ДД.ММ.ГГГГ
+            le.textChanged.connect(self._on_birth_line_edit_text_changed)
 
         self.age_edit = QtWidgets.QLineEdit()
         self.age_edit.setReadOnly(True)
@@ -218,6 +214,7 @@ class PatientDialog(QtWidgets.QDialog):
         bl.addWidget(age_lbl, 0)
         bl.addWidget(self.age_edit, 1)
         form.addRow(_form_label("Дата рождения:"), birth_age_row)
+        QtCore.QTimer.singleShot(0, self._sync_birth_placeholder_if_unfocused)
 
         # Gender
         self.gender_combo = AutoComboBox(max_popup_items=30)
@@ -403,34 +400,49 @@ class PatientDialog(QtWidgets.QDialog):
 
         self.save_btn.setEnabled(can)
 
+    def _on_birth_line_edit_text_changed(self, text: str) -> None:
+        """Без фокуса показываем ДД.ММ.ГГГГ вместо 01.01.1900."""
+        le = self.birth_date.lineEdit()
+        if not le or le.hasFocus():
+            return
+        if text == "01.01.1900" and self.birth_date.date() == self._birth_min_date:
+            QtCore.QTimer.singleShot(0, self._sync_birth_placeholder_if_unfocused)
+
+    def _sync_birth_placeholder_if_unfocused(self) -> None:
+        le = self.birth_date.lineEdit()
+        if not le or le.hasFocus() or self.birth_date.date() != self._birth_min_date:
+            return
+        le.blockSignals(True)
+        le.setText("ДД.ММ.ГГГГ")
+        le.blockSignals(False)
+
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
         le = self.birth_date.lineEdit()
-        if le is obj:
-            if event.type() == QtCore.QEvent.Type.FocusIn:
-                try:
-                    self.birth_date.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
-                    self.birth_date.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
-                    le.selectAll()
-                except Exception:
-                    pass
-            if event.type() == QtCore.QEvent.Type.MouseButtonPress:
-                try:
-                    self.birth_date.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
-                    self.birth_date.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
-                    le.selectAll()
-                except Exception:
-                    pass
-            if event.type() == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
-                txt = le.text() or ""
-                # Если отображается плейсхолдер, то первый ввод должен заменять его,
-                # а не дописываться после "ДД.ММ.ГГГГ".
-                if txt.strip() in ("ДД.ММ.ГГГГ", "") and le.hasSelectedText():
-                    key = event.key()
-                    if QtCore.Qt.Key.Key_0 <= key <= QtCore.Qt.Key.Key_9:
-                        le.clear()
-                    elif key in (QtCore.Qt.Key.Key_Backspace, QtCore.Qt.Key.Key_Delete):
-                        le.clear()
-                        return True
+        if le is not obj:
+            return super().eventFilter(obj, event)
+        if event.type() == QtCore.QEvent.Type.FocusIn:
+            # Чтобы QDateEdit нормально переключал секции (день→месяц→год), при фокусе ставим 01.01.1900 и выделяем день
+            if self.birth_date.date() == self._birth_min_date:
+                le.blockSignals(True)
+                le.setText("01.01.1900")
+                le.blockSignals(False)
+            try:
+                self.birth_date.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                self.birth_date.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                le.setSelection(0, 2)
+            except Exception:
+                pass
+        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+            if self.birth_date.date() == self._birth_min_date and le.text() == "ДД.ММ.ГГГГ":
+                le.blockSignals(True)
+                le.setText("01.01.1900")
+                le.blockSignals(False)
+            try:
+                self.birth_date.setCurrentSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                self.birth_date.setSelectedSection(QtWidgets.QDateTimeEdit.Section.DaySection)
+                le.setSelection(0, 2)
+            except Exception:
+                pass
         return super().eventFilter(obj, event)
 
     def _setup_combo_placeholder(self, combo: QtWidgets.QComboBox) -> None:

@@ -8,7 +8,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..db import connect
 from ..repo import get_protocol_draft_id, load_protocol_values
-from .auto_combo import AutoComboBox
+from .auto_combo import AutoComboBox, DictTemplateLineHeightDelegate
 
 TEMPLATE_MULTI_DELIM = " | "
 
@@ -603,6 +603,9 @@ class ProtocolBuilderQt(QtCore.QObject):
                 "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
             )
             cb.setProperty("open_only_on_arrow", True)
+            # Межстрочный интервал 85% и выравнивание по ширине только для словарей/шаблонов.
+            if _view is not None:
+                _view.setItemDelegate(DictTemplateLineHeightDelegate(_view))
             # Многострочное отображение: текст переносится, высота поля растёт (до max_display_height).
             cb.setProperty("multiline_display", True)
             cb.setProperty("max_display_height", 300)
@@ -664,11 +667,10 @@ class ProtocolBuilderQt(QtCore.QObject):
             _doc.setDefaultTextOption(_to)
             try:
                 _bf = QtGui.QTextBlockFormat()
-                _bf.setLineHeight(
-                    _LINE_HEIGHT_RATIO,
-                    QtGui.QTextBlockFormat.LineHeightTypes.ProportionalHeight,
-                )
-                _doc.setDefaultTextBlockFormat(_bf)
+                _bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
+                _cur = QtGui.QTextCursor(_doc)
+                _cur.select(QtGui.QTextCursor.SelectionType.Document)
+                _cur.mergeBlockFormat(_bf)
             except Exception:
                 pass
 
@@ -727,6 +729,8 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.activated.connect(lambda _idx, c=cb: _append_value(c.currentText()))
             cb.setProperty("template_text_widget", ta)
             cb.setProperty("open_only_on_arrow", True)  # открытие только по стрелке, без мерцания
+            if _tpl_view is not None:
+                _tpl_view.setItemDelegate(DictTemplateLineHeightDelegate(_tpl_view))
 
             # Layout: комбобокс справа от названия, область прокрутки с текстом ниже
             inner = QtWidgets.QWidget()

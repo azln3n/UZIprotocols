@@ -60,16 +60,88 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
         to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
         to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
         doc.setDefaultTextOption(to)
-        try:
-            bf = QtGui.QTextBlockFormat()
-            bf.setLineHeight(
-                _LINE_HEIGHT_RATIO,
-                QtGui.QTextBlockFormat.LineHeightTypes.ProportionalHeight,
-            )
-            doc.setDefaultTextBlockFormat(bf)
-        except Exception:
-            pass
         doc.setPlainText(opt.text)
+        doc.setTextWidth(width)
+        height = int(doc.size().height()) + 6
+        return QtCore.QSize(width, max(height, 22))
+
+
+# Делегат только для полей «словарь» и «шаблон»: межстрочный интервал 85% и выравнивание по ширине (как в шаблонном тексте).
+class DictTemplateLineHeightDelegate(QtWidgets.QStyledItemDelegate):
+    def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionViewItem, index) -> None:
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        style = opt.widget.style() if opt.widget else QtWidgets.QApplication.style()
+        style.drawPrimitive(QtWidgets.QStyle.PrimitiveElement.PE_PanelItemViewItem, opt, painter, opt.widget)
+
+        text_rect = style.subElementRect(QtWidgets.QStyle.SubElement.SE_ItemViewItemText, opt, opt.widget)
+        check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
+        if check_state is not None:
+            check_rect = style.subElementRect(QtWidgets.QStyle.SubElement.SE_ItemViewItemCheck, opt, opt.widget)
+            cb_opt = QtWidgets.QStyleOptionButton()
+            cb_opt.rect = check_rect
+            cb_opt.state = QtWidgets.QStyle.StateFlag.State_Enabled
+            cb_opt.state |= (
+                QtWidgets.QStyle.StateFlag.State_On
+                if check_state == QtCore.Qt.CheckState.Checked
+                else QtWidgets.QStyle.StateFlag.State_Off
+            )
+            style.drawControl(QtWidgets.QStyle.ControlElement.CE_CheckBox, cb_opt, painter, opt.widget)
+            text_rect.setLeft(check_rect.right() + 6)
+        painter.save()
+        color = (
+            opt.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
+            if opt.state & QtWidgets.QStyle.StateFlag.State_Selected
+            else opt.palette.color(QtGui.QPalette.ColorRole.Text)
+        )
+        doc = QtGui.QTextDocument()
+        doc.setDefaultFont(opt.font)
+        to = QtGui.QTextOption()
+        to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+        doc.setDefaultTextOption(to)
+        doc.setPlainText(opt.text)
+        bf = QtGui.QTextBlockFormat()
+        bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
+        cur = QtGui.QTextCursor(doc)
+        cur.select(QtGui.QTextCursor.SelectionType.Document)
+        cur.mergeBlockFormat(bf)
+        doc.setTextWidth(max(1, text_rect.width()))
+        cur = QtGui.QTextCursor(doc)
+        cur.select(QtGui.QTextCursor.SelectionType.Document)
+        cf = QtGui.QTextCharFormat()
+        cf.setForeground(QtGui.QBrush(color))
+        cur.mergeCharFormat(cf)
+        painter.translate(text_rect.left(), text_rect.top())
+        doc.drawContents(painter)
+        painter.translate(-text_rect.left(), -text_rect.top())
+        painter.restore()
+
+    def sizeHint(self, option: QtWidgets.QStyleOptionViewItem, index) -> QtCore.QSize:
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        width = int(opt.rect.width() or 0)
+        if width <= 0 and isinstance(opt.widget, QtWidgets.QAbstractItemView):
+            try:
+                width = int(opt.widget.viewport().width())
+            except Exception:
+                width = 0
+        check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
+        if check_state is not None:
+            width -= 24
+        width = max(120, width or 220)
+        doc = QtGui.QTextDocument()
+        doc.setDefaultFont(opt.font)
+        to = QtGui.QTextOption()
+        to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+        to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+        doc.setDefaultTextOption(to)
+        doc.setPlainText(opt.text)
+        bf = QtGui.QTextBlockFormat()
+        bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
+        cur = QtGui.QTextCursor(doc)
+        cur.select(QtGui.QTextCursor.SelectionType.Document)
+        cur.mergeBlockFormat(bf)
         doc.setTextWidth(width)
         height = int(doc.size().height()) + 6
         return QtCore.QSize(width, max(height, 22))
