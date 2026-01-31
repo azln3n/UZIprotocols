@@ -174,7 +174,7 @@ class ProtocolArea(QtWidgets.QWidget):
         self.study_combo.setMinimumWidth(280)
         self.study_combo.setStyleSheet(
             "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
-            "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
+            "QComboBox:focus, QComboBox:on { border: 2px solid #000000; padding: 3px 5px; }"
         )
         try:
             view = self.study_combo.view()
