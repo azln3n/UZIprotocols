@@ -300,7 +300,10 @@ class AutoComboBox(QtWidgets.QComboBox):
 
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
         # Клик по комбобоксу: разрешаем попап только если клик по кнопке-стрелке
-        if obj is self and event.type() == QtCore.QEvent.Type.MouseButtonPress and isinstance(event, QtGui.QMouseEvent):
+        if obj is self and event.type() in (
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QEvent.Type.MouseButtonDblClick,
+        ) and isinstance(event, QtGui.QMouseEvent):
             if self.property("open_only_on_arrow"):
                 pos = getattr(event, "position", lambda: event.pos())()
                 if self._is_click_on_arrow(pos):
@@ -312,7 +315,7 @@ class AutoComboBox(QtWidgets.QComboBox):
         if le is None or obj is not le:
             return super().eventFilter(obj, event)
         et = event.type()
-        if et == QtCore.QEvent.Type.MouseButtonPress:
+        if et in (QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.MouseButtonDblClick):
             if self.property("open_only_on_arrow"):
                 # Перехватываем клик по полю — попап только по кнопке справа
                 try:

@@ -45,20 +45,18 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           font-size: 12pt;
         }
 
-        QComboBox, QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit, QDateTimeEdit {
+        QComboBox, QLineEdit, QTextEdit, QPlainTextEdit {
           background: #ffffff;
           color: #000000;
           border: 1px solid #bbbbbb;
           border-radius: 4px;
           padding: 6px 8px;
         }
-        QComboBox:hover, QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover,
-        QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover, QTimeEdit:hover, QDateTimeEdit:hover {
+        QComboBox:hover, QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover {
           border: 2px solid #007bff;
           padding: 5px 7px;
         }
-        QComboBox:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
-        QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTimeEdit:focus, QDateTimeEdit:focus {
+        QComboBox:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
           border: 2px solid #007bff;
           padding: 5px 7px;
         }

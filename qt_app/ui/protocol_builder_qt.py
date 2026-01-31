@@ -209,6 +209,10 @@ class ProtocolBuilderQt(QtCore.QObject):
         # DocumentMode иногда рисует лишнюю "полосу/линию" вверху на Windows;
         # по скринам нужна более "плоская" панель без разделителей.
         self.tab_widget.setDocumentMode(False)
+        tb = self.tab_widget.tabBar()
+        tb.setUsesScrollButtons(False)
+        tb.setExpanding(False)
+        tb.setElideMode(QtCore.Qt.TextElideMode.ElideRight)
 
         self.fields: dict[int, FieldBinding] = {}
         self.field_meta: dict[int, FieldMeta] = {}
@@ -225,6 +229,7 @@ class ProtocolBuilderQt(QtCore.QObject):
 
     def build(self) -> QtWidgets.QWidget:
         container = QtWidgets.QWidget()
+        self._container = container
         layout = QtWidgets.QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -234,6 +239,8 @@ class ProtocolBuilderQt(QtCore.QObject):
         self._load_existing_protocol()
         self._recalculate_formulas()
         self._apply_tab_styles()
+        self._setup_tab_scroll_buttons()
+        QtCore.QTimer.singleShot(0, self._ensure_window_width_for_tabs)
         return container
 
     def _load_structure(self) -> None:
@@ -603,6 +610,82 @@ class ProtocolBuilderQt(QtCore.QObject):
             QTabBar::tab:selected { background: #FF95A8; }
             """
         )
+
+    def _setup_tab_scroll_buttons(self) -> None:
+        # Свои кнопки прокрутки вкладок справа, показывать только если вкладок > 3
+        if hasattr(self, "_tab_scroll_widget"):
+            return
+        self._tab_scroll_widget = QtWidgets.QWidget()
+        hl = QtWidgets.QHBoxLayout(self._tab_scroll_widget)
+        hl.setContentsMargins(0, 0, 0, 0)
+        hl.setSpacing(4)
+
+        self._tab_btn_left = QtWidgets.QToolButton()
+        self._tab_btn_left.setText("<")
+        self._tab_btn_left.setAutoRaise(True)
+        self._tab_btn_right = QtWidgets.QToolButton()
+        self._tab_btn_right.setText(">")
+        self._tab_btn_right.setAutoRaise(True)
+
+        for b in (self._tab_btn_left, self._tab_btn_right):
+            b.setFixedSize(24, 24)
+            b.setStyleSheet(
+                "QToolButton { background: #e9ecef; border: 1px solid #bbbbbb; border-radius: 4px; }"
+                "QToolButton:hover { border-color: #007bff; }"
+            )
+
+        self._tab_btn_left.clicked.connect(lambda: self._scroll_tabs(-1))
+        self._tab_btn_right.clicked.connect(lambda: self._scroll_tabs(1))
+        hl.addWidget(self._tab_btn_left)
+        hl.addWidget(self._tab_btn_right)
+
+        self.tab_widget.setCornerWidget(self._tab_scroll_widget, QtCore.Qt.Corner.TopRightCorner)
+        self.tab_widget.currentChanged.connect(lambda _idx: self._update_tab_scroll_buttons())
+        self._update_tab_scroll_buttons()
+
+    def _scroll_tabs(self, step: int) -> None:
+        try:
+            idx = self.tab_widget.currentIndex()
+            if idx < 0:
+                return
+            new_idx = max(0, min(self.tab_widget.count() - 1, idx + int(step)))
+            self.tab_widget.setCurrentIndex(new_idx)
+            self._update_tab_scroll_buttons()
+        except Exception:
+            pass
+
+    def _update_tab_scroll_buttons(self) -> None:
+        try:
+            count = self.tab_widget.count()
+            show = count > 3
+            if hasattr(self, "_tab_scroll_widget"):
+                self._tab_scroll_widget.setVisible(show)
+            if not show:
+                return
+            idx = self.tab_widget.currentIndex()
+            self._tab_btn_left.setEnabled(idx > 0)
+            self._tab_btn_right.setEnabled(idx < count - 1)
+        except Exception:
+            pass
+
+    def _ensure_window_width_for_tabs(self) -> None:
+        try:
+            tb = self.tab_widget.tabBar()
+            tabs_w = int(tb.sizeHint().width())
+            if tabs_w <= 0:
+                return
+            extra = 40
+            target = tabs_w + extra
+            win = None
+            if hasattr(self, "_container") and isinstance(self._container, QtWidgets.QWidget):
+                win = self._container.window()
+            if win is None:
+                return
+            if target > win.minimumWidth():
+                win.setMinimumWidth(target)
+                win.resize(max(win.width(), target), win.height())
+        except Exception:
+            pass
 
     def _create_field_widget(self, conn, meta: FieldMeta) -> FieldBinding:
         label = QtWidgets.QLabel(meta.name)
