@@ -72,6 +72,7 @@ class LoginDialog(QtWidgets.QDialog):
                 "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
                 "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 5px 7px; }"
             )
+            cb.setProperty("no_popup_margins", True)
 
         self.institution_combo.currentIndexChanged.connect(self._on_institution_changed)
 

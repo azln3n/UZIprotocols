@@ -282,6 +282,7 @@ class AutoComboBox(QtWidgets.QComboBox):
             view.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
             view.setUniformItemSizes(False)
             view.setSpacing(2)
+            view.setViewportMargins(6, 0, 6, 0)
             view.setItemDelegate(DictTemplateLineHeightDelegate(view))
         except Exception:
             pass
@@ -499,10 +500,43 @@ class AutoComboBox(QtWidgets.QComboBox):
                     try:
                         view.setFont(QtGui.QFont("Arial", 12))
                         view.setUniformItemSizes(False)
-                        view.setViewportMargins(0, 0, 0, 0)
+                        count = int(self.count() or 0)
+                        if count > 0:
+                            if self.property("popup_auto_height"):
+                                self.setMaxVisibleItems(count)
+                                view.setVerticalScrollBarPolicy(
+                                    QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                                )
+                                try:
+                                    sb = view.verticalScrollBar()
+                                    if sb is not None:
+                                        sb.hide()
+                                        sb.setDisabled(True)
+                                        sb.setFixedWidth(0)
+                                except Exception:
+                                    pass
+                                try:
+                                    row_h = int(view.sizeHintForRow(0))
+                                except Exception:
+                                    row_h = max(22, self.fontMetrics().height() + 6)
+                                total_h = row_h * count + (view.frameWidth() * 2) + 2
+                                view.setMinimumHeight(total_h)
+                                view.setMaximumHeight(total_h)
+                            else:
+                                visible = min(count, int(self._max_popup_items))
+                                self.setMaxVisibleItems(visible)
+                                view.setVerticalScrollBarPolicy(
+                                    QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                                )
+                        if self.property("no_popup_margins"):
+                            view.setViewportMargins(0, 0, 0, 0)
+                        else:
+                            view.setViewportMargins(6, 0, 6, 0)
                         view.setStyleSheet(
-                            "QListView { background: #ffffff; border: 1px solid #bbbbbb; }"
-                            "QListView::item { background: #ffffff; padding: 0px 0px; }"
+                            "QListView { background: #ffffff; border-top: 1px solid #bbbbbb; "
+                            "border-bottom: 1px solid #bbbbbb; border-left: 0px; border-right: 0px; "
+                            "border-radius: 0px; }"
+                            "QListView::item { background: #ffffff; padding: 0px 0px; border-bottom: 1px solid #e0e0e0; }"
                             "QListView::item:selected { background: #007bff; color: #ffffff; border-radius: 0px; }"
                         )
                         view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

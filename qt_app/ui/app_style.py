@@ -132,7 +132,11 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           selection-background-color: #007bff;
           selection-color: #ffffff;
           outline: 0;
-          border: 1px solid #bbbbbb;
+          border-top: 1px solid #bbbbbb;
+          border-bottom: 1px solid #bbbbbb;
+          border-left: 0px;
+          border-right: 0px;
+          border-radius: 0px;
         }
         QComboBox QAbstractItemView::item {
           font-family: Arial;

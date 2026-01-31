@@ -173,9 +173,12 @@ class ProtocolArea(QtWidgets.QWidget):
         self.study_combo = AutoComboBox(max_popup_items=30)
         self.study_combo.setEditable(False)
         self.study_combo.setMinimumWidth(280)
+        self.study_combo.setProperty("popup_auto_height", True)
         self.study_combo.setStyleSheet(
-            "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
-            "QComboBox:focus, QComboBox:on { border: 2px solid #000000; padding: 3px 5px; }"
+            "QComboBox { border-top: 1px solid #bbbbbb; border-bottom: 1px solid #bbbbbb; "
+            "border-left: 0px; border-right: 0px; border-radius: 0px; padding: 4px 6px; } "
+            "QComboBox:focus, QComboBox:on { border-top: 2px solid #000000; border-bottom: 2px solid #000000; "
+            "border-left: 0px; border-right: 0px; border-radius: 0px; padding: 3px 5px; }"
         )
         try:
             view = self.study_combo.view()

@@ -417,7 +417,7 @@ def get_patient_brief(patient_id: int) -> tuple[str, str] | None:
 def list_study_types() -> list[ComboItem]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, name FROM study_types WHERE is_active = 1 ORDER BY name"
+            "SELECT id, name FROM study_types WHERE is_active = 1 ORDER BY display_order, name"
         ).fetchall()
     return [ComboItem(int(r["id"]), str(r["name"])) for r in rows]
 

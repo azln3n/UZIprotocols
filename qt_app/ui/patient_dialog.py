@@ -222,13 +222,16 @@ class PatientDialog(QtWidgets.QDialog):
 
         # Gender
         self.gender_combo = AutoComboBox(max_popup_items=30)
-        self.gender_combo.setProperty("popup_item_padding", "6px 12px")  # 6px вертикальный отступ
         try:
             _v = self.gender_combo.view()
             if _v is not None:
                 _v.setFont(QtGui.QFont("Arial", 12))
         except Exception:
             pass
+        self.gender_combo.setStyleSheet(
+            "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
+            "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 5px 7px; }"
+        )
         self.gender_combo.addItem("муж.", "муж")
         self.gender_combo.addItem("жен.", "жен")
         self.gender_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
@@ -239,13 +242,16 @@ class PatientDialog(QtWidgets.QDialog):
 
         # Admission channel
         self.channel_combo = AutoComboBox(max_popup_items=30)
-        self.channel_combo.setProperty("popup_item_padding", "6px 12px")  # 6px вертикальный отступ
         try:
             _v = self.channel_combo.view()
             if _v is not None:
                 _v.setFont(QtGui.QFont("Arial", 12))
         except Exception:
             pass
+        self.channel_combo.setStyleSheet(
+            "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
+            "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 5px 7px; }"
+        )
         self.channel_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
         self.channel_combo.setMinimumHeight(input_h)
         self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
