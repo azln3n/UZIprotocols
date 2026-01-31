@@ -212,7 +212,9 @@ class ProtocolBuilderQt(QtCore.QObject):
         tb = self.tab_widget.tabBar()
         tb.setUsesScrollButtons(False)
         tb.setExpanding(False)
-        tb.setElideMode(QtCore.Qt.TextElideMode.ElideRight)
+        tb.setElideMode(QtCore.Qt.TextElideMode.ElideNone)
+        self._tab_titles: list[str] = []
+        tb.installEventFilter(self)
 
         self.fields: dict[int, FieldBinding] = {}
         self.field_meta: dict[int, FieldMeta] = {}
@@ -239,8 +241,9 @@ class ProtocolBuilderQt(QtCore.QObject):
         self._load_existing_protocol()
         self._recalculate_formulas()
         self._apply_tab_styles()
-        self._setup_tab_scroll_buttons()
         QtCore.QTimer.singleShot(0, self._ensure_window_width_for_tabs)
+        QtCore.QTimer.singleShot(0, self._update_tab_titles)
+        self.tab_widget.currentChanged.connect(lambda _idx: self._update_tab_titles())
         return container
 
     def _load_structure(self) -> None:
@@ -252,6 +255,7 @@ class ProtocolBuilderQt(QtCore.QObject):
         self._tab_name_by_id.clear()
         self._group_name_by_id.clear()
         self._field_id_by_path.clear()
+        self._tab_titles.clear()
 
         with connect() as conn:
             tabs = conn.execute(
@@ -576,6 +580,7 @@ class ProtocolBuilderQt(QtCore.QObject):
                     pass
                 self.tab_widget.addTab(tab_root, tab_name)
                 self.tab_widget.tabBar().setTabData(self.tab_widget.count() - 1, tab_id)
+                self._tab_titles.append(tab_name)
 
         # connect triggers after build
         for trigger_id in self.hidden_by_trigger.keys():
@@ -611,62 +616,42 @@ class ProtocolBuilderQt(QtCore.QObject):
             """
         )
 
-    def _setup_tab_scroll_buttons(self) -> None:
-        # Свои кнопки прокрутки вкладок справа, показывать только если вкладок > 3
-        if hasattr(self, "_tab_scroll_widget"):
-            return
-        self._tab_scroll_widget = QtWidgets.QWidget()
-        hl = QtWidgets.QHBoxLayout(self._tab_scroll_widget)
-        hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(4)
-
-        self._tab_btn_left = QtWidgets.QToolButton()
-        self._tab_btn_left.setText("<")
-        self._tab_btn_left.setAutoRaise(True)
-        self._tab_btn_right = QtWidgets.QToolButton()
-        self._tab_btn_right.setText(">")
-        self._tab_btn_right.setAutoRaise(True)
-
-        for b in (self._tab_btn_left, self._tab_btn_right):
-            b.setFixedSize(24, 24)
-            b.setStyleSheet(
-                "QToolButton { background: #e9ecef; border: 1px solid #bbbbbb; border-radius: 4px; }"
-                "QToolButton:hover { border-color: #007bff; }"
-            )
-
-        self._tab_btn_left.clicked.connect(lambda: self._scroll_tabs(-1))
-        self._tab_btn_right.clicked.connect(lambda: self._scroll_tabs(1))
-        hl.addWidget(self._tab_btn_left)
-        hl.addWidget(self._tab_btn_right)
-
-        self.tab_widget.setCornerWidget(self._tab_scroll_widget, QtCore.Qt.Corner.TopRightCorner)
-        self.tab_widget.currentChanged.connect(lambda _idx: self._update_tab_scroll_buttons())
-        self._update_tab_scroll_buttons()
-
-    def _scroll_tabs(self, step: int) -> None:
+    def _update_tab_titles(self) -> None:
         try:
-            idx = self.tab_widget.currentIndex()
-            if idx < 0:
-                return
-            new_idx = max(0, min(self.tab_widget.count() - 1, idx + int(step)))
-            self.tab_widget.setCurrentIndex(new_idx)
-            self._update_tab_scroll_buttons()
-        except Exception:
-            pass
-
-    def _update_tab_scroll_buttons(self) -> None:
-        try:
+            tb = self.tab_widget.tabBar()
             count = self.tab_widget.count()
-            show = count > 3
-            if hasattr(self, "_tab_scroll_widget"):
-                self._tab_scroll_widget.setVisible(show)
-            if not show:
+            if count <= 0:
                 return
-            idx = self.tab_widget.currentIndex()
-            self._tab_btn_left.setEnabled(idx > 0)
-            self._tab_btn_right.setEnabled(idx < count - 1)
+            cur = self.tab_widget.currentIndex()
+            fm = tb.fontMetrics()
+            full = list(self._tab_titles)
+            if len(full) != count:
+                full = [tb.tabText(i) for i in range(count)]
+                self._tab_titles = list(full)
+            # width for current tab (full)
+            cur_w = fm.horizontalAdvance(full[cur]) + 36
+            other_count = max(1, count - 1)
+            other_min = fm.horizontalAdvance("…") + 18
+            avail = max(0, tb.width() - cur_w)
+            max_other = max(other_min, int(avail / other_count)) if avail > 0 else 0
+            for i in range(count):
+                if i == cur:
+                    tb.setTabText(i, full[i])
+                else:
+                    if max_other <= 0:
+                        tb.setTabText(i, "")
+                    else:
+                        tb.setTabText(
+                            i,
+                            fm.elidedText(full[i], QtCore.Qt.TextElideMode.ElideRight, max_other),
+                        )
         except Exception:
             pass
+
+    def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
+        if obj is self.tab_widget.tabBar() and event.type() == QtCore.QEvent.Type.Resize:
+            QtCore.QTimer.singleShot(0, self._update_tab_titles)
+        return super().eventFilter(obj, event)
 
     def _ensure_window_width_for_tabs(self) -> None:
         try:
