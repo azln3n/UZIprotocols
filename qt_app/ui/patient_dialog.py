@@ -161,6 +161,7 @@ class PatientDialog(QtWidgets.QDialog):
 
         # IIN
         self.iin_edit = QtWidgets.QLineEdit()
+        self.iin_edit.setStyleSheet("padding: 4px 6px 6px 6px;")  # текст чуть выше, чтобы не обрезался
         self.iin_edit.setPlaceholderText("12 цифр")
         self.iin_edit.setMaxLength(12)
         # Важно: НЕ используем inputMask — на Windows он даёт "квадратик" каретки и
@@ -225,6 +226,7 @@ class PatientDialog(QtWidgets.QDialog):
         self.gender_combo.setMinimumHeight(input_h)
         self.gender_combo.currentIndexChanged.connect(self._refresh_save_state)
         self._setup_combo_placeholder(self.gender_combo)
+        self._combo_line_edit_style(self.gender_combo)
         form.addRow(_form_label("Пол:"), self.gender_combo)
 
         # Admission channel
@@ -234,6 +236,7 @@ class PatientDialog(QtWidgets.QDialog):
         self.channel_combo.setMinimumHeight(input_h)
         self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
         self._setup_combo_placeholder(self.channel_combo)
+        self._combo_line_edit_style(self.channel_combo)
         form.addRow(_form_label("Канал поступления:"), self.channel_combo)
 
         root.addLayout(form)
@@ -453,6 +456,15 @@ class PatientDialog(QtWidgets.QDialog):
         pal.setColor(QtGui.QPalette.ColorRole.PlaceholderText, QtGui.QColor("#9aa0a6"))
         combo.setPalette(pal)
         combo.setCurrentIndex(-1)
+
+    def _combo_line_edit_style(self, combo: QtWidgets.QComboBox) -> None:
+        """Убирает внутреннюю рамку и поднимает текст в поле (сдвиг виджета вверх, не обрезка)."""
+        le = combo.lineEdit()
+        if le is not None:
+            le.setStyleSheet(
+                "border: none; padding: 0 6px 0 6px; "
+                "margin-top: -2px;"  # сдвигаем поле вверх — текст поднимается, не обрезается
+            )
 
     @QtCore.Slot()
     def _save(self) -> None:
