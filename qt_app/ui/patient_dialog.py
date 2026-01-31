@@ -128,7 +128,8 @@ class PatientDialog(QtWidgets.QDialog):
             le = dt_widget.lineEdit()
             if le is not None:
                 # Вертикальные отступы 6px сверху и снизу, чтобы дата не обрезалась
-                le.setStyleSheet("padding: 1px 6px 1px 6px;")
+                le.setStyleSheet("padding: 0px 0px 0px 0px;")
+                le.setTextMargins(0, 0, 0, 0)
         self.exam_date = QtWidgets.QDateEdit()
         self.exam_date.setCalendarPopup(True)
         self.exam_date.setDisplayFormat("dd.MM.yyyy")
@@ -184,7 +185,7 @@ class PatientDialog(QtWidgets.QDialog):
         self.birth_date.setDisplayFormat("dd.MM.yyyy")
         _dt_line_edit_padding(self.birth_date)
         # По просьбе: дата рождения + возраст в одной строке, поля компактнее
-        self.birth_date.setMinimumWidth(148)
+        self.birth_date.setMinimumWidth(140)
         self.birth_date.setSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
         self.birth_date.setMinimumHeight(dt_input_h)
         self._birth_min_date = QtCore.QDate(1900, 1, 1)
@@ -211,7 +212,7 @@ class PatientDialog(QtWidgets.QDialog):
         birth_age_row = QtWidgets.QWidget()
         bl = QtWidgets.QHBoxLayout(birth_age_row)
         bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(0)
+        bl.setSpacing(6)
         age_lbl = self._bold_label("Возраст:")
         age_lbl.setMinimumWidth(age_lbl.sizeHint().width())
         bl.addWidget(self.birth_date, 0)
