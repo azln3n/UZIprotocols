@@ -180,6 +180,10 @@ class AutoComboBox(QtWidgets.QComboBox):
         super().__init__(*args, **kwargs)
         self._max_popup_items = int(max_popup_items)
         self._le_filter_installed = False
+        self._combo_click_filter_installed = False
+        self._allow_popup_next = False  # True только после клика по кнопке-стрелке
+        # По умолчанию попап только по кнопке справа, не по клику по полю
+        self.setProperty("open_only_on_arrow", True)
         try:
             view = self.view()
             if view is not None:
@@ -203,6 +207,7 @@ class AutoComboBox(QtWidgets.QComboBox):
         except Exception:
             pass
         self._ensure_lineedit_filter()
+        self._ensure_combo_click_filter()
 
     def setEditable(self, editable: bool) -> None:  # noqa: N802 (Qt naming)
         # При переключении editable Qt может создать новый lineEdit().
@@ -210,7 +215,9 @@ class AutoComboBox(QtWidgets.QComboBox):
         super().setEditable(bool(editable))
         # lineEdit() появился/обновился -> ставим фильтр
         self._le_filter_installed = False
+        self._combo_click_filter_installed = False
         self._ensure_lineedit_filter()
+        self._ensure_combo_click_filter()
 
     def _ensure_lineedit_filter(self) -> None:
         if self._le_filter_installed:
@@ -222,34 +229,70 @@ class AutoComboBox(QtWidgets.QComboBox):
         # поэтому скрываем его, иначе перекрывает обёрнутый текст.
         if self._multiline_enabled():
             le.hide()
-        # Словари и шаблоны: не трогаем lineEdit (нет фильтра, нет "руки") — тогда курсор
-        # ставится в место клика и текст можно редактировать с любой позиции, а не только с конца.
-        elif not self.property("open_only_on_arrow"):
-            le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        else:
+            # Фильтр всегда ставим, чтобы при open_only_on_arrow перехватывать клик по полю
             le.installEventFilter(self)
+            if not self.property("open_only_on_arrow"):
+                le.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self._le_filter_installed = True
 
+    def _ensure_combo_click_filter(self) -> None:
+        """При open_only_on_arrow ставим фильтр на комбобокс, чтобы разрешать попап только после клика по стрелке."""
+        if self._combo_click_filter_installed:
+            return
+        if not self.property("open_only_on_arrow"):
+            return
+        self.installEventFilter(self)
+        self._combo_click_filter_installed = True
+
+    def _is_click_on_arrow(self, pos: QtCore.QPoint | QtCore.QPointF) -> bool:
+        opt = QtWidgets.QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        arrow_rect = self.style().subControlRect(
+            QtWidgets.QStyle.ComplexControl.CC_ComboBox,
+            opt,
+            QtWidgets.QStyle.SubControl.SC_ComboBoxArrow,
+            self,
+        )
+        if hasattr(pos, "toPoint"):
+            pos = pos.toPoint()
+        return arrow_rect.contains(QtCore.QPoint(int(pos.x()), int(pos.y())))
+
     def eventFilter(self, obj: object, event: QtCore.QEvent) -> bool:
-        # Для словарей и шаблонов (open_only_on_arrow) попап только по стрелке; для остальных — по клику и клавишам.
-        if self.property("open_only_on_arrow"):
-            return super().eventFilter(obj, event)
+        # Клик по комбобоксу: разрешаем попап только если клик по кнопке-стрелке
+        if obj is self and event.type() == QtCore.QEvent.Type.MouseButtonPress and isinstance(event, QtGui.QMouseEvent):
+            if self.property("open_only_on_arrow"):
+                pos = getattr(event, "position", lambda: event.pos())()
+                if self._is_click_on_arrow(pos):
+                    self._allow_popup_next = True
+                    return False  # передать событие — комбо вызовет showPopup()
+                self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+                return True  # клик по полю — не открывать
         le = self.lineEdit()
-        if le is not None and obj is le:
-            et = event.type()
-            if et == QtCore.QEvent.Type.MouseButtonPress:
+        if le is None or obj is not le:
+            return super().eventFilter(obj, event)
+        et = event.type()
+        if et == QtCore.QEvent.Type.MouseButtonPress:
+            if self.property("open_only_on_arrow"):
+                # Перехватываем клик по полю — попап только по кнопке справа
                 try:
                     self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
                 except Exception:
                     pass
+                return True
+            try:
+                self.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+            except Exception:
+                pass
+            self.showPopup()
+            return True
+        if et == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
+            key = event.key()
+            if key in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Up) or key == QtCore.Qt.Key.Key_Space:
+                if self.property("open_only_on_arrow"):
+                    return True
                 self.showPopup()
                 return True
-            if et == QtCore.QEvent.Type.KeyPress and isinstance(event, QtGui.QKeyEvent):
-                key = event.key()
-                if key in (QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Up) or (
-                    key == QtCore.Qt.Key.Key_Space
-                ):
-                    self.showPopup()
-                    return True
         return super().eventFilter(obj, event)
 
     def _force_popup_below(self) -> None:
@@ -384,6 +427,17 @@ class AutoComboBox(QtWidgets.QComboBox):
             self.adjust_multiline_height()
 
     def showPopup(self) -> None:  # noqa: N802 (Qt naming)
+        # Открывать только по нажатию на кнопку выпадающего списка, не по клику по полю
+        if self.property("open_only_on_arrow"):
+            if not self._allow_popup_next:
+                # На случай другого порядка событий: разрешить только если курсор над стрелкой
+                try:
+                    pos_local = self.mapFromGlobal(QtGui.QCursor.pos())
+                    if not self._is_click_on_arrow(pos_local):
+                        return
+                except Exception:
+                    return
+            self._allow_popup_next = False
         self._ensure_lineedit_filter()
         try:
             count = int(self.count() or 0)
