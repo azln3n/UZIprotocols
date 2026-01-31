@@ -112,7 +112,9 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           padding: 6px 6px 6px 6px;
         }
 
-        /* ComboBox popup list must stay readable on any OS theme */
+        /* ComboBox popup list must stay readable on any OS theme.
+           Не задаём padding/height для ::item — иначе QStyleSheetStyle пересчитывает размеры
+           и перебивает sizeHint делегата, из-за чего многострочные пункты накладываются. */
         QComboBox QAbstractItemView {
           font-family: Arial;
           font-size: 12pt;
@@ -125,7 +127,6 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
         QComboBox QAbstractItemView::item {
           font-family: Arial;
           font-size: 12pt;
-          padding: 6px 12px;
         }
         QComboBox QAbstractItemView::item:hover {
           background: #eef5ff; /* подсветка при наведении */
@@ -136,10 +137,7 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           color: #ffffff;
         }
 
-        /* Optional: add comfortable padding inside popup items for specific comboboxes */
-        QComboBox[padded_popup="true"] QAbstractItemView::item {
-          padding: 6px 12px;
-        }
+        /* Padding пунктов попапа задаётся в виджете (AutoComboBox), не здесь — иначе ломается высота при переносе. */
 
         /* Lists / tables also get focus border per "любой поле" wording */
         QListWidget, QTableWidget, QTreeWidget, QTableView, QTreeView {
