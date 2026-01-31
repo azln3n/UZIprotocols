@@ -799,6 +799,7 @@ def move_group(group_id: int, direction: int) -> None:
 
 
 def list_fields(group_id: int) -> list[FieldRow]:
+    """Порядок полей — строго по display_order (одна шкала на группу). Колонка (1/2/3) не меняет порядок строк."""
     with connect() as conn:
         rows = conn.execute(
             """
@@ -810,7 +811,7 @@ def list_fields(group_id: int) -> list[FieldRow]:
               hidden_trigger_field_id, hidden_trigger_value
             FROM fields
             WHERE group_id = ?
-            ORDER BY column_num, display_order, id
+            ORDER BY display_order, id
             """,
             (int(group_id),),
         ).fetchall()
@@ -862,9 +863,10 @@ def create_field(
 ) -> int:
     with connect() as conn:
         cur = conn.cursor()
+        # Один порядок на всю группу: новое поле в конец списка. Колонка (1/2/3) не влияет на позицию.
         max_order = cur.execute(
-            "SELECT COALESCE(MAX(display_order), 0) FROM fields WHERE group_id = ? AND column_num = ?",
-            (int(group_id), int(column_num)),
+            "SELECT COALESCE(MAX(display_order), 0) FROM fields WHERE group_id = ?",
+            (int(group_id),),
         ).fetchone()[0]
         cur.execute(
             """
@@ -929,20 +931,14 @@ def update_field(
         ).fetchone()
         if row:
             group_id = int(row["group_id"])
-            current_col = int(row["column_num"] or 1)
             current_order = int(row["display_order"] or 0)
         else:
             group_id = None
-            current_col = int(column_num)
             current_order = 0
 
+        # Порядок (display_order) не трогаем при редактировании — только при явном перемещении (move_field).
+        # Смена колонки (левая/правая) не меняет позицию поля в списке.
         new_order = current_order
-        if group_id is not None and int(column_num) != current_col:
-            max_order = cur.execute(
-                "SELECT COALESCE(MAX(display_order), 0) FROM fields WHERE group_id = ? AND column_num = ?",
-                (group_id, int(column_num)),
-            ).fetchone()[0]
-            new_order = int(max_order) + 1
 
         conn.execute(
             """
@@ -999,8 +995,7 @@ def delete_field(field_id: int) -> None:
 
 
 def move_field(field_id: int, direction: int) -> None:
-    """direction -1 up, +1 down by position in the table (column_num, display_order).
-    Swaps with the previous/next row even across columns, so arrow up/down matches UI."""
+    """direction -1 вверх, +1 вниз по порядку в таблице. Меняются только display_order двух строк (обмен)."""
     with connect() as conn:
         cur = conn.cursor()
         row = cur.execute("SELECT group_id FROM fields WHERE id = ?", (int(field_id),)).fetchone()
@@ -1012,7 +1007,7 @@ def move_field(field_id: int, direction: int) -> None:
             SELECT id, column_num, display_order
             FROM fields
             WHERE group_id = ?
-            ORDER BY column_num, display_order, id
+            ORDER BY display_order, id
             """,
             (group_id,),
         ).fetchall()
@@ -1025,12 +1020,10 @@ def move_field(field_id: int, direction: int) -> None:
             return
         a_id = int(rows[i]["id"])
         b_id = int(rows[j]["id"])
-        a_col = int(rows[i]["column_num"] or 1)
         a_ord = int(rows[i]["display_order"] or 0)
-        b_col = int(rows[j]["column_num"] or 1)
         b_ord = int(rows[j]["display_order"] or 0)
-        cur.execute("UPDATE fields SET column_num = ?, display_order = ? WHERE id = ?", (b_col, b_ord, a_id))
-        cur.execute("UPDATE fields SET column_num = ?, display_order = ? WHERE id = ?", (a_col, a_ord, b_id))
+        cur.execute("UPDATE fields SET display_order = ? WHERE id = ?", (b_ord, a_id))
+        cur.execute("UPDATE fields SET display_order = ? WHERE id = ?", (a_ord, b_id))
         conn.commit()
 
 

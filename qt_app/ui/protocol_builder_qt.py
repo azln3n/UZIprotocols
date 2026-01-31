@@ -328,6 +328,7 @@ class ProtocolBuilderQt(QtCore.QObject):
                         lambda _=None, sb=scroll_body: sb.setMinimumHeight(sb.sizeHint().height())
                     )
 
+                    # Порядок как в настройках: по display_order (одна шкала на группу). Колонка — только раскладка.
                     fields_rows = conn.execute(
                         """
                         SELECT
@@ -338,44 +339,15 @@ class ProtocolBuilderQt(QtCore.QObject):
                           hidden_trigger_field_id, hidden_trigger_value
                         FROM fields
                         WHERE group_id = ?
-                        ORDER BY column_num, display_order
+                        ORDER BY display_order, id
                         """,
                         (group_id,),
                     ).fetchall()
 
-                    # layout by columns:
-                    # - "сплошная" (1) на всю ширину
-                    # - "левая" (2) и "правая" (3) в две колонки
-                    full_widget = QtWidgets.QWidget()
-                    # Сплошная колонка должна растягиваться на всю доступную ширину
-                    full_widget.setSizePolicy(
-                        QtWidgets.QSizePolicy.Policy.Expanding,
-                        QtWidgets.QSizePolicy.Policy.Preferred,
-                    )
-                    full_grid = QtWidgets.QGridLayout(full_widget)
-                    full_grid.setContentsMargins(6, 0, 6, 0)
-                    full_grid.setHorizontalSpacing(6)
-                    full_grid.setVerticalSpacing(8)
-                    full_grid.setColumnStretch(1, 1)
-
-                    left_widget = QtWidgets.QWidget()
-                    left_grid = QtWidgets.QGridLayout(left_widget)
-                    left_grid.setContentsMargins(6, 0, 6, 0)
-                    left_grid.setHorizontalSpacing(6)
-                    left_grid.setVerticalSpacing(8)
-                    left_grid.setColumnStretch(1, 1)
-
-                    right_widget = QtWidgets.QWidget()
-                    right_grid = QtWidgets.QGridLayout(right_widget)
-                    right_grid.setContentsMargins(6, 0, 6, 0)
-                    right_grid.setHorizontalSpacing(6)
-                    right_grid.setVerticalSpacing(8)
-                    right_grid.setColumnStretch(1, 1)
-
-                    row_index = {"full": 0, "left": 0, "right": 0}
+                    # Раскладка строго по display_order: каждая строка — либо одно поле "сплошная",
+                    # либо пара "левая + правая". Тогда поле "сплошная" внизу списка не уедет наверх.
                     label_widths = {"full": 0, "left": 0, "right": 0}
-                    max_label_width = 0
-                    counts = {"full": 0, "left": 0, "right": 0}
+                    ordered_bindings: list[tuple[FieldBinding, str]] = []  # (binding, "full"|"left"|"right")
 
                     for fr in fields_rows:
                         field_id = int(fr["id"])
@@ -407,32 +379,15 @@ class ProtocolBuilderQt(QtCore.QObject):
                         self._field_id_by_path[key] = field_id
 
                         cnum = meta.column_num or 1
-                        if cnum == 1:
-                            grid = full_grid
-                            key = "full"
-                        elif cnum == 2:
-                            grid = left_grid
-                            key = "left"
-                        else:
-                            grid = right_grid
-                            key = "right"
-
-                        r = row_index[key]
-                        row_index[key] = r + 1
+                        col_key = "full" if cnum == 1 else ("left" if cnum == 2 else "right")
 
                         binding = self._create_field_widget(conn, meta)
                         self.fields[field_id] = binding
 
                         if meta.required:
                             binding.label.setText(binding.label.text() + " *")
-                        # Выравнивание подписей:
-                        # - слева/сплошная: по левому краю (по самой длинной подписи слева)
-                        # - справа: по правому краю (по самой длинной подписи справа)
-                        h_align = (
-                            QtCore.Qt.AlignmentFlag.AlignRight
-                            if key == "right"
-                            else QtCore.Qt.AlignmentFlag.AlignLeft
-                        )
+                        # Все подписи по левому краю; колонка подписей уже фиксирована по ширине — поля не сдвигаются
+                        h_align = QtCore.Qt.AlignmentFlag.AlignLeft
                         v_align = (
                             QtCore.Qt.AlignmentFlag.AlignTop
                             if meta.field_type == "шаблон"
@@ -441,63 +396,104 @@ class ProtocolBuilderQt(QtCore.QObject):
                         binding.label.setAlignment(h_align | v_align)
                         try:
                             lw = binding.label.sizeHint().width()
-                            label_widths[key] = max(label_widths.get(key, 0), lw)
-                            max_label_width = max(max_label_width, lw)
+                            label_widths[col_key] = max(label_widths.get(col_key, 0), lw)
                         except Exception:
                             pass
-                        counts[key] += 1
 
-                        # hidden triggers mapping
                         if meta.is_hidden and meta.trigger_field_id:
                             self.hidden_by_trigger.setdefault(meta.trigger_field_id, []).append(field_id)
                             binding.container.setVisible(False)
 
-                        grid.addWidget(binding.label, r, 0, 1, 1)
-                        if meta.field_type == "шаблон":
-                            # Важно: шаблонный блок выше строки (комбо + текст ниже).
-                            # При изменении высоты текстового поля без AlignTop Qt может центрировать
-                            # контейнер по вертикали внутри строки, и комбобокс "уезжает" вниз.
-                            grid.addWidget(
-                                binding.container,
-                                r,
-                                1,
-                                1,
-                                1,
-                                QtCore.Qt.AlignmentFlag.AlignTop,
-                            )
-                        else:
-                            grid.addWidget(binding.container, r, 1, 1, 1)
+                        ordered_bindings.append((binding, col_key))
 
-                    if counts["full"] > 0:
-                        group_box.content_layout.addWidget(full_widget)
-
-                    if counts["left"] > 0 or counts["right"] > 0:
-                        lr_layout = QtWidgets.QHBoxLayout()
-                        lr_layout.setContentsMargins(0, 0, 0, 0)
-                        lr_layout.setSpacing(16)
-                        # Важно: даже если одна из колонок пуста, добавляем оба widget и НЕ скрываем их,
-                        # иначе оставшаяся колонка растянется "сплошняком" на всю ширину.
-                        # Пустая колонка должна просто занимать своё место (половину ширины).
-                        lr_layout.addWidget(left_widget, 1)
-                        lr_layout.addWidget(right_widget, 1)
-                        # Чтобы правая колонка не "висела" по центру между строками левой —
-                        # прижимаем оба блока к верху.
-                        lr_layout.setAlignment(left_widget, QtCore.Qt.AlignmentFlag.AlignTop)
-                        lr_layout.setAlignment(right_widget, QtCore.Qt.AlignmentFlag.AlignTop)
-                        group_box.content_layout.addLayout(lr_layout)
-
-                    # Ширина колонки подписей:
-                    # - full и left должны стартовать одинаково (от самой длинной подписи слева)
-                    # - right отдельно (и подписи там AlignRight)
-                    mw_left = int(label_widths.get("left", 0) or 0)
-                    mw_full = int(label_widths.get("full", 0) or 0)
+                    mw_lf = max(int(label_widths.get("left", 0) or 0), int(label_widths.get("full", 0) or 0))
                     mw_right = int(label_widths.get("right", 0) or 0)
-                    mw_lf = max(mw_left, mw_full)
-                    if mw_lf > 0:
-                        full_grid.setColumnMinimumWidth(0, mw_lf)
-                        left_grid.setColumnMinimumWidth(0, mw_lf)
-                    if mw_right > 0:
-                        right_grid.setColumnMinimumWidth(0, mw_right)
+                    _margins = (6, 0, 6, 0)
+                    _spacing = 6
+
+                    i = 0
+                    while i < len(ordered_bindings):
+                        binding, col_key = ordered_bindings[i]
+                        if col_key == "full":
+                            row_w = QtWidgets.QWidget()
+                            row_l = QtWidgets.QHBoxLayout(row_w)
+                            row_l.setContentsMargins(*_margins)
+                            row_l.setSpacing(_spacing)
+                            if mw_lf > 0:
+                                binding.label.setMinimumWidth(mw_lf)
+                            row_l.addWidget(binding.label, 0)
+                            if binding.meta.field_type == "шаблон":
+                                row_l.addWidget(binding.container, 1, QtCore.Qt.AlignmentFlag.AlignTop)
+                            else:
+                                row_l.addWidget(binding.container, 1)
+                            group_box.content_layout.addWidget(row_w)
+                            i += 1
+                        elif col_key == "left":
+                            left_b, right_b = binding, None
+                            if i + 1 < len(ordered_bindings) and ordered_bindings[i + 1][1] == "right":
+                                right_b = ordered_bindings[i + 1][0]
+                                i += 2
+                            else:
+                                i += 1
+                            lr_row = QtWidgets.QHBoxLayout()
+                            lr_row.setContentsMargins(0, 0, 0, 0)
+                            lr_row.setSpacing(16)
+                            for side, b in (("left", left_b), ("right", right_b)):
+                                if b is None:
+                                    cell = QtWidgets.QWidget()
+                                    cell.setSizePolicy(
+                                        QtWidgets.QSizePolicy.Policy.Expanding,
+                                        QtWidgets.QSizePolicy.Policy.Preferred,
+                                    )
+                                    lr_row.addWidget(cell, 1)
+                                    continue
+                                cell = QtWidgets.QWidget()
+                                cell_l = QtWidgets.QGridLayout(cell)
+                                cell_l.setContentsMargins(*_margins)
+                                cell_l.setHorizontalSpacing(_spacing)
+                                cell_l.setVerticalSpacing(8)
+                                cell_l.setColumnStretch(1, 1)
+                                mw = mw_lf if side == "left" else mw_right
+                                if mw > 0:
+                                    cell_l.setColumnMinimumWidth(0, mw)
+                                cell_l.addWidget(b.label, 0, 0, 1, 1)
+                                if b.meta.field_type == "шаблон":
+                                    cell_l.addWidget(
+                                        b.container, 0, 1, 1, 1, QtCore.Qt.AlignmentFlag.AlignTop
+                                    )
+                                else:
+                                    cell_l.addWidget(b.container, 0, 1, 1, 1)
+                                lr_row.addWidget(cell, 1)
+                            group_box.content_layout.addLayout(lr_row)
+                        else:
+                            row_w = QtWidgets.QHBoxLayout()
+                            row_w.setContentsMargins(0, 0, 0, 0)
+                            row_w.setSpacing(16)
+                            empty = QtWidgets.QWidget()
+                            empty.setSizePolicy(
+                                QtWidgets.QSizePolicy.Policy.Expanding,
+                                QtWidgets.QSizePolicy.Policy.Preferred,
+                            )
+                            row_w.addWidget(empty, 1)
+                            cell = QtWidgets.QWidget()
+                            cell_l = QtWidgets.QGridLayout(cell)
+                            cell_l.setContentsMargins(*_margins)
+                            cell_l.setHorizontalSpacing(_spacing)
+                            cell_l.setVerticalSpacing(8)
+                            cell_l.setColumnStretch(1, 1)
+                            if mw_right > 0:
+                                cell_l.setColumnMinimumWidth(0, mw_right)
+                            cell_l.addWidget(binding.label, 0, 0, 1, 1)
+                            if binding.meta.field_type == "шаблон":
+                                cell_l.addWidget(
+                                    binding.container, 0, 1, 1, 1,
+                                    QtCore.Qt.AlignmentFlag.AlignTop,
+                                )
+                            else:
+                                cell_l.addWidget(binding.container, 0, 1, 1, 1)
+                            row_w.addWidget(cell, 1)
+                            group_box.content_layout.addLayout(row_w)
+                            i += 1
 
                 if stretch_item is not None:
                     scroll_layout.addItem(stretch_item)
