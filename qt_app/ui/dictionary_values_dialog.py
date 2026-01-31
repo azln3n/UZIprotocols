@@ -10,6 +10,7 @@ from ..repo import (
     move_dictionary_value,
     update_dictionary_value,
 )
+from .auto_combo import WrapAnywhereDelegate
 
 
 class DictionaryValuesDialog(QtWidgets.QDialog):
@@ -61,6 +62,8 @@ class DictionaryValuesDialog(QtWidgets.QDialog):
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setWordWrap(True)
+        self.table.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
+        self.table.setItemDelegate(WrapAnywhereDelegate(self.table))
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)

@@ -8,7 +8,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from ..db import connect
 from ..repo import get_protocol_draft_id, load_protocol_values
-from .auto_combo import AutoComboBox, DictTemplateLineHeightDelegate
+from .auto_combo import AutoComboBox
 
 TEMPLATE_MULTI_DELIM = " | "
 
@@ -410,6 +410,52 @@ class ProtocolBuilderQt(QtCore.QObject):
                     mw_right = int(label_widths.get("right", 0) or 0)
                     _margins = (6, 0, 6, 0)
                     _spacing = 6
+                    
+                    def _sync_template_to_dict_height(
+                        dict_b: FieldBinding | None, tpl_b: FieldBinding | None
+                    ) -> None:
+                        if dict_b is None or tpl_b is None:
+                            return
+                        if dict_b.meta.field_type != "СЃР»РѕРІР°СЂСЊ":
+                            return
+                        if tpl_b.meta.field_type != "С€Р°Р±Р»РѕРЅ":
+                            return
+                        tpl_cb = tpl_b.widget
+                        if not isinstance(tpl_cb, QtWidgets.QComboBox):
+                            return
+                        scroll_area = tpl_cb.property("template_scroll_area")
+                        if not isinstance(scroll_area, QtWidgets.QScrollArea):
+                            return
+                        try:
+                            base_h = int(
+                                tpl_cb.property("template_base_height") or scroll_area.height() or 120
+                            )
+                        except Exception:
+                            base_h = 120
+
+                        def _apply() -> None:
+                            try:
+                                dict_h = int(dict_b.container.sizeHint().height() or 0)
+                                tpl_h = int(tpl_b.container.sizeHint().height() or 0)
+                                if dict_h <= 0:
+                                    dict_h = int(dict_b.container.height() or 0)
+                                if tpl_h <= 0:
+                                    tpl_h = int(tpl_b.container.height() or 0)
+                                if dict_h <= 0 or tpl_h <= 0:
+                                    return
+                                if dict_h > tpl_h:
+                                    new_h = base_h + (dict_h - tpl_h)
+                                else:
+                                    new_h = base_h
+                                if scroll_area.height() != new_h:
+                                    scroll_area.setMinimumHeight(new_h)
+                                    scroll_area.setFixedHeight(new_h)
+                            except Exception:
+                                pass
+
+                        QtCore.QTimer.singleShot(0, _apply)
+                        if isinstance(dict_b.widget, QtWidgets.QComboBox):
+                            dict_b.widget.currentTextChanged.connect(lambda _t: _apply())
 
                     i = 0
                     while i < len(ordered_bindings):
@@ -438,6 +484,10 @@ class ProtocolBuilderQt(QtCore.QObject):
                             lr_row = QtWidgets.QHBoxLayout()
                             lr_row.setContentsMargins(0, 0, 0, 0)
                             lr_row.setSpacing(16)
+                            row_has_template = bool(
+                                (left_b and left_b.meta.field_type == "шаблон")
+                                or (right_b and right_b.meta.field_type == "шаблон")
+                            )
                             for side, b in (("left", left_b), ("right", right_b)):
                                 if b is None:
                                     cell = QtWidgets.QWidget()
@@ -456,8 +506,10 @@ class ProtocolBuilderQt(QtCore.QObject):
                                 mw = mw_lf if side == "left" else mw_right
                                 if mw > 0:
                                     cell_l.setColumnMinimumWidth(0, mw)
+                                if row_has_template:
+                                    b.label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop)
                                 cell_l.addWidget(b.label, 0, 0, 1, 1)
-                                if b.meta.field_type == "шаблон":
+                                if b.meta.field_type == "шаблон" or row_has_template:
                                     cell_l.addWidget(
                                         b.container, 0, 1, 1, 1, QtCore.Qt.AlignmentFlag.AlignTop
                                     )
@@ -465,6 +517,8 @@ class ProtocolBuilderQt(QtCore.QObject):
                                     cell_l.addWidget(b.container, 0, 1, 1, 1)
                                 lr_row.addWidget(cell, 1)
                             group_box.content_layout.addLayout(lr_row)
+                            _sync_template_to_dict_height(left_b, right_b)
+                            _sync_template_to_dict_height(right_b, left_b)
                         else:
                             row_w = QtWidgets.QHBoxLayout()
                             row_w.setContentsMargins(0, 0, 0, 0)
@@ -575,6 +629,11 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.setEditable(True)
             if cb.lineEdit():
                 cb.lineEdit().setReadOnly(False)
+            cb.set_combo_kind("dict")
+            cb.setStyleSheet(
+                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
+                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 5px 7px; }"
+            )
             cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
             cb.setSizeAdjustPolicy(
                 QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -594,14 +653,7 @@ class ProtocolBuilderQt(QtCore.QObject):
             if _view is not None:
                 _view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
                 _view.setFont(QtGui.QFont("Arial", 12))
-            cb.setStyleSheet(
-                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
-                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
-            )
             cb.setProperty("open_only_on_arrow", True)
-            # Межстрочный интервал 85% и выравнивание по ширине только для словарей/шаблонов.
-            if _view is not None:
-                _view.setItemDelegate(DictTemplateLineHeightDelegate(_view))
             # Многострочное отображение: текст переносится, высота поля растёт (до max_display_height).
             cb.setProperty("multiline_display", True)
             cb.setProperty("max_display_height", 300)
@@ -620,6 +672,11 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.setEditable(True)
             if cb.lineEdit():
                 cb.lineEdit().setReadOnly(True)
+            cb.set_combo_kind("template")
+            cb.setStyleSheet(
+                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
+                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 5px 7px; }"
+            )
             cb.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
             cb.setSizeAdjustPolicy(
                 QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -644,6 +701,11 @@ class ProtocolBuilderQt(QtCore.QObject):
             ta = QtWidgets.QPlainTextEdit()
             ta.setFont(QtGui.QFont("Arial", 12))
             ta.setPlaceholderText("")
+            ta.setProperty("field_kind", "template_text")
+            ta.setStyleSheet(
+                "QPlainTextEdit { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
+                "QPlainTextEdit:focus { border: 2px solid #007bff; padding: 5px 7px; }"
+            )
             # Явно перенос по ширине виджета — иначе на части машин длинный текст обрезается
             ta.setLineWrapMode(QtWidgets.QPlainTextEdit.LineWrapMode.WidgetWidth)
             if self._read_only:
@@ -651,10 +713,6 @@ class ProtocolBuilderQt(QtCore.QObject):
             # Скролл — через QScrollArea (как в окне протокола), чтобы была каретка
             ta.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             ta.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            ta.setStyleSheet(
-                "QPlainTextEdit { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
-                "QPlainTextEdit:focus { border: 2px solid #007bff; padding: 3px 5px; }"
-            )
             ta.setMinimumHeight(80)
             # Перенос по словам, выравнивание по ширине, межстрочный интервал (как в словарях)
             _LINE_HEIGHT_RATIO = 0.85
@@ -672,18 +730,18 @@ class ProtocolBuilderQt(QtCore.QObject):
             except Exception:
                 pass
 
+            # Фиксированная высота области (как у окна протокола) — поле не меняет размер
+            _template_area_height = 120
+
             scroll_area = QtWidgets.QScrollArea()
             scroll_area.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-            scroll_area.setFixedHeight(200)  # поле всегда одной высоты, скроллбар при переполнении
+            scroll_area.setFixedHeight(_template_area_height)  # поле всегда одной высоты, скроллбар при переполнении
             scroll_area.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             scroll_area.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             scroll_area.setWidget(ta)
             scroll_area.setStyleSheet("QScrollArea { border: 0; background: transparent; }")
             # Виджет внутри не растягиваем — высота по контенту, чтобы скроллбар появился
             scroll_area.setWidgetResizable(False)
-
-            # Фиксированная высота области (как у окна протокола) — поле не меняет размер
-            _template_area_height = 200
 
             def _update_template_scroll_height() -> None:
                 # Внутренний виджет не меньше высоты области; растёт только при переполнении
@@ -708,12 +766,8 @@ class ProtocolBuilderQt(QtCore.QObject):
                 _ResizeFilter(scroll_area.viewport(), _update_template_ta_width)
             )
             QtCore.QTimer.singleShot(50, _update_template_ta_width)
-
-            # Серая рамка, синяя при фокусе и при открытом списке (:on)
-            cb.setStyleSheet(
-                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "
-                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 3px 5px; }"
-            )
+            cb.setProperty("template_scroll_area", scroll_area)
+            cb.setProperty("template_base_height", _template_area_height)
 
             def _append_value(text: str) -> None:
                 if not text or not text.strip():
@@ -729,8 +783,6 @@ class ProtocolBuilderQt(QtCore.QObject):
             cb.activated.connect(lambda _idx, c=cb: _append_value(c.currentText()))
             cb.setProperty("template_text_widget", ta)
             cb.setProperty("open_only_on_arrow", True)  # открытие только по стрелке, без мерцания
-            if _tpl_view is not None:
-                _tpl_view.setItemDelegate(DictTemplateLineHeightDelegate(_tpl_view))
 
             # Layout: комбобокс справа от названия, область прокрутки с текстом ниже
             inner = QtWidgets.QWidget()

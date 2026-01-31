@@ -171,6 +171,7 @@ class ProtocolArea(QtWidgets.QWidget):
         study_layout.addWidget(study_lbl)
 
         self.study_combo = AutoComboBox(max_popup_items=30)
+        self.study_combo.setEditable(False)
         self.study_combo.setMinimumWidth(280)
         self.study_combo.setStyleSheet(
             "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 4px 6px; } "

@@ -39,6 +39,29 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
     app.setStyleSheet(
         """
 
+
+        * {
+          font-family: "Arial";
+          font-size: 12pt;
+        }
+
+        QComboBox, QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit, QDateTimeEdit {
+          background: #ffffff;
+          color: #000000;
+          border: 1px solid #bbbbbb;
+          border-radius: 4px;
+          padding: 6px 8px;
+        }
+        QComboBox:hover, QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover,
+        QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover, QTimeEdit:hover, QDateTimeEdit:hover {
+          border: 2px solid #007bff;
+          padding: 5px 7px;
+        }
+        QComboBox:focus, QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus,
+        QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTimeEdit:focus, QDateTimeEdit:focus {
+          border: 2px solid #007bff;
+          padding: 5px 7px;
+        }
         QWidget {
           font-family: "Arial";
           font-size: 12pt;
@@ -47,55 +70,43 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           qproperty-wordWrap: true;
         }
 
-        /* Buttons: ensure disabled looks disabled even if per-button stylesheet exists */
+        /* Buttons */
         QPushButton, QToolButton {
           padding: 6px 12px;
-          border: 2px solid transparent; /* без серой рамки по умолчанию */
+          border: 2px solid transparent;
           border-radius: 6px;
-          background: #e9ecef; /* единый серый фон */
-          color: black;
+          background: #e9ecef;
+          color: #000000;
         }
         QPushButton:hover, QToolButton:hover {
-          border-color: #007bff; /* синяя рамка именно при наведении */
+          border-color: #007bff;
         }
         QPushButton:disabled {
           background: #d0d0d0;
           color: #666666;
         }
 
-        /* Шрифт Arial 12 везде — иначе на части машин подставляется системный (напр. Segoe UI) */
-        QLabel, QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {
-          font-family: Arial;
-          font-size: 12pt;
-        }
         /* Inputs */
-        QLineEdit, QComboBox, QTextEdit, QPlainTextEdit {
-          background: white;
+        QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
+          background: #ffffff;
           color: #000000;
           border: 1px solid #bbbbbb;
           border-radius: 4px;
           padding: 6px 8px;
         }
-        QLineEdit:hover, QComboBox:hover, QTextEdit:hover, QPlainTextEdit:hover {
+        QLineEdit:hover, QTextEdit:hover, QPlainTextEdit:hover, QComboBox:hover {
           border: 2px solid #007bff;
           padding: 5px 7px;
         }
-        QLineEdit:focus, QComboBox:focus, QTextEdit:focus, QPlainTextEdit:focus {
+        QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
           border: 2px solid #007bff;
           padding: 5px 7px;
         }
 
-        /* QComboBox can paint "current item" using HighlightedText on some themes.
-           If background is forced to white by QSS, text can become white-on-white.
-           Force readable text + selection colors for both non-editable and editable combos. */
         QComboBox {
           color: #000000;
           selection-background-color: #007bff;
           selection-color: #ffffff;
-        }
-        QComboBox:on {
-          /* popup opened */
-          color: #000000;
         }
         QComboBox QLineEdit {
           font-family: Arial;
@@ -112,9 +123,7 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           padding: 6px 6px 6px 6px;
         }
 
-        /* ComboBox popup list must stay readable on any OS theme.
-           Не задаём padding/height для ::item — иначе QStyleSheetStyle пересчитывает размеры
-           и перебивает sizeHint делегата, из-за чего многострочные пункты накладываются. */
+        /* ComboBox popup list */
         QComboBox QAbstractItemView {
           font-family: Arial;
           font-size: 12pt;
@@ -123,13 +132,16 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           selection-background-color: #007bff;
           selection-color: #ffffff;
           outline: 0;
+          border: 1px solid #bbbbbb;
         }
         QComboBox QAbstractItemView::item {
           font-family: Arial;
           font-size: 12pt;
+          border-bottom: 1px solid #e0e0e0;
+          padding: 2px 0px;
         }
         QComboBox QAbstractItemView::item:hover {
-          background: #eef5ff; /* подсветка при наведении */
+          background: #eef5ff;
           color: #000000;
         }
         QComboBox QAbstractItemView::item:selected {
@@ -137,9 +149,38 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           color: #ffffff;
         }
 
-        /* Padding пунктов попапа задаётся в виджете (AutoComboBox), не здесь — иначе ломается высота при переносе. */
+        /* Dict/template combos: isolated styling */
+        QComboBox[combo_kind="dict"], QComboBox[combo_kind="template"] {
+          background: #ffffff;
+          color: #000000;
+          border: 1px solid #bbbbbb;
+          border-radius: 4px;
+          padding: 6px 8px;
+        }
+        QComboBox[combo_kind="dict"]:focus, QComboBox[combo_kind="template"]:focus,
+        QComboBox[combo_kind="dict"]:on, QComboBox[combo_kind="template"]:on {
+          border: 2px solid #007bff;
+          padding: 5px 7px;
+        }
+        QComboBox[combo_kind="dict"] QAbstractItemView,
+        QComboBox[combo_kind="template"] QAbstractItemView {
+          background: #ffffff;
+        }
 
-        /* Lists / tables also get focus border per "любой поле" wording */
+        /* Template text hook */
+        QPlainTextEdit[field_kind="template_text"] {
+          background: #ffffff;
+          color: #000000;
+          border: 1px solid #bbbbbb;
+          border-radius: 4px;
+          padding: 6px 8px;
+        }
+        QPlainTextEdit[field_kind="template_text"]:focus {
+          border: 2px solid #007bff;
+          padding: 5px 7px;
+        }
+
+        /* Lists / tables also get focus border per "????? ????" wording */
         QListWidget, QTableWidget, QTreeWidget, QTableView, QTreeView {
           border: 1px solid #bbbbbb;
           border-radius: 4px;
@@ -201,7 +242,7 @@ def apply_app_style(app: QtWidgets.QApplication) -> None:
           outline: 0;
         }
 
-        /* Скроллбар как в окне протокола: узкий, светло-зелёный */
+        /* Scrollbar */
         QScrollBar:vertical {
           width: 12px;
           background: #CCE6D4;
@@ -268,12 +309,11 @@ class _ButtonAutoSizeFilter(QtCore.QObject):
                         v.setMouseTracking(True)
                         if v.viewport() is not None:
                             v.viewport().setMouseTracking(True)
-                        # По ТЗ: длинные значения в выпадающих списках должны переноситься.
-                        if isinstance(v, QtWidgets.QListView):
+                        # Перенос/выравнивание только для словарей и шаблонов.
+                        if cb.property("combo_kind") in ("dict", "template") and isinstance(v, QtWidgets.QListView):
                             v.setWordWrap(True)
                             v.setUniformItemSizes(False)
                             v.setTextElideMode(QtCore.Qt.TextElideMode.ElideNone)
-
                     except Exception:
                         pass
 

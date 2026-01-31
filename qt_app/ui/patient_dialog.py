@@ -156,6 +156,7 @@ class PatientDialog(QtWidgets.QDialog):
         # FIO
         self.name_edit = QtWidgets.QLineEdit()
         self.name_edit.setPlaceholderText("Введите Ф.И.О. пациента")
+        self.name_edit.setStyleSheet("font-family: Arial; font-size: 13pt;")
         self.name_edit.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
         self.name_edit.setMinimumHeight(input_h)
         self.name_edit.textChanged.connect(self._refresh_save_state)
@@ -222,23 +223,33 @@ class PatientDialog(QtWidgets.QDialog):
         # Gender
         self.gender_combo = AutoComboBox(max_popup_items=30)
         self.gender_combo.setProperty("popup_item_padding", "6px 12px")  # 6px вертикальный отступ
+        try:
+            _v = self.gender_combo.view()
+            if _v is not None:
+                _v.setFont(QtGui.QFont("Arial", 12))
+        except Exception:
+            pass
         self.gender_combo.addItem("муж.", "муж")
         self.gender_combo.addItem("жен.", "жен")
         self.gender_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
         self.gender_combo.setMinimumHeight(input_h)
         self.gender_combo.currentIndexChanged.connect(self._refresh_save_state)
         self._setup_combo_placeholder(self.gender_combo)
-        self._combo_line_edit_style(self.gender_combo)
         form.addRow(_form_label("Пол:"), self.gender_combo)
 
         # Admission channel
         self.channel_combo = AutoComboBox(max_popup_items=30)
         self.channel_combo.setProperty("popup_item_padding", "6px 12px")  # 6px вертикальный отступ
+        try:
+            _v = self.channel_combo.view()
+            if _v is not None:
+                _v.setFont(QtGui.QFont("Arial", 12))
+        except Exception:
+            pass
         self.channel_combo.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
         self.channel_combo.setMinimumHeight(input_h)
         self.channel_combo.currentIndexChanged.connect(self._refresh_save_state)
         self._setup_combo_placeholder(self.channel_combo)
-        self._combo_line_edit_style(self.channel_combo)
         form.addRow(_form_label("Канал поступления:"), self.channel_combo)
 
         root.addLayout(form)

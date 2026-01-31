@@ -61,10 +61,17 @@ class LoginDialog(QtWidgets.QDialog):
 
         self.institution_combo = AutoComboBox(max_popup_items=30)
         self.doctor_combo = AutoComboBox(max_popup_items=30)
+        self.institution_combo.setEditable(False)
+        self.doctor_combo.setEditable(False)
         # По ТЗ: окно входа небольшое, но текст в комбобоксах не должен обрезаться
         for cb in (self.institution_combo, self.doctor_combo):
             cb.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToContents)
             cb.currentTextChanged.connect(lambda _t=None: self._adjust_to_contents())
+            # Match standard field styling (like Пол/Канал)
+            cb.setStyleSheet(
+                "QComboBox { border: 1px solid #bbbbbb; border-radius: 4px; padding: 6px 8px; } "
+                "QComboBox:focus, QComboBox:on { border: 2px solid #007bff; padding: 5px 7px; }"
+            )
 
         self.institution_combo.currentIndexChanged.connect(self._on_institution_changed)
 
@@ -97,8 +104,13 @@ class LoginDialog(QtWidgets.QDialog):
     def _adjust_to_contents(self) -> None:
         # Подгоняем диалог под текущие значения комбобоксов (и их sizeHint).
         try:
-            self.institution_combo.setMinimumWidth(self.institution_combo.sizeHint().width())
-            self.doctor_combo.setMinimumWidth(self.doctor_combo.sizeHint().width())
+            min_w = max(
+                int(self.institution_combo.sizeHint().width()),
+                int(self.doctor_combo.sizeHint().width()),
+                260,
+            )
+            self.institution_combo.setMinimumWidth(min_w)
+            self.doctor_combo.setMinimumWidth(min_w)
         except Exception:
             pass
         self.adjustSize()
