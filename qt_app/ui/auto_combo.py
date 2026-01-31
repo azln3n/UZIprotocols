@@ -42,28 +42,37 @@ class WrapAnywhereDelegate(QtWidgets.QStyledItemDelegate):
         painter.restore()
 
     def sizeHint(self, option: QtWidgets.QStyleOptionViewItem, index) -> QtCore.QSize:
-        opt = QtWidgets.QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        width = int(opt.rect.width() or 0)
-        if width <= 0 and isinstance(opt.widget, QtWidgets.QAbstractItemView):
-            try:
-                width = int(opt.widget.viewport().width())
-            except Exception:
-                width = 0
-        check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
-        if check_state is not None:
-            width -= 24
-        width = max(120, width or 220)
-        doc = QtGui.QTextDocument()
-        doc.setDefaultFont(opt.font)
-        to = QtGui.QTextOption()
-        to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
-        to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
-        doc.setDefaultTextOption(to)
-        doc.setPlainText(opt.text)
-        doc.setTextWidth(width)
-        height = int(doc.size().height()) + 6
-        return QtCore.QSize(width, max(height, 22))
+        try:
+            opt = QtWidgets.QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+            width = int(opt.rect.width() or 0)
+            if width <= 0 and isinstance(opt.widget, QtWidgets.QAbstractItemView):
+                try:
+                    width = int(opt.widget.viewport().width())
+                except Exception:
+                    width = 0
+            check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
+            if check_state is not None:
+                width -= 24
+            width = max(120, width or 220)
+            doc = QtGui.QTextDocument()
+            doc.setDefaultFont(opt.font)
+            to = QtGui.QTextOption()
+            to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+            to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+            doc.setDefaultTextOption(to)
+            doc.setPlainText(opt.text)
+            doc.setTextWidth(width)
+            line_h = opt.fontMetrics().height()
+            doc_h = int(doc.size().height())
+            # Однострочный пункт — высота как у комбобокса (padding 6+6 из стиля), чтобы список не был выше поля
+            if doc_h <= line_h * 1.3:
+                height = line_h + 12
+            else:
+                height = doc_h + 6
+            return QtCore.QSize(width, max(height, line_h + 12))
+        except Exception:
+            return QtCore.QSize(220, 30)
 
 
 # Делегат только для полей «словарь» и «шаблон»: межстрочный интервал 85% и выравнивание по ширине (как в шаблонном тексте).
@@ -88,63 +97,73 @@ class DictTemplateLineHeightDelegate(QtWidgets.QStyledItemDelegate):
             )
             style.drawControl(QtWidgets.QStyle.ControlElement.CE_CheckBox, cb_opt, painter, opt.widget)
             text_rect.setLeft(check_rect.right() + 6)
-        painter.save()
-        color = (
-            opt.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
-            if opt.state & QtWidgets.QStyle.StateFlag.State_Selected
-            else opt.palette.color(QtGui.QPalette.ColorRole.Text)
-        )
-        doc = QtGui.QTextDocument()
-        doc.setDefaultFont(opt.font)
-        to = QtGui.QTextOption()
-        to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
-        to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
-        doc.setDefaultTextOption(to)
-        doc.setPlainText(opt.text)
-        bf = QtGui.QTextBlockFormat()
-        bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
-        cur = QtGui.QTextCursor(doc)
-        cur.select(QtGui.QTextCursor.SelectionType.Document)
-        cur.mergeBlockFormat(bf)
-        doc.setTextWidth(max(1, text_rect.width()))
-        cur = QtGui.QTextCursor(doc)
-        cur.select(QtGui.QTextCursor.SelectionType.Document)
-        cf = QtGui.QTextCharFormat()
-        cf.setForeground(QtGui.QBrush(color))
-        cur.mergeCharFormat(cf)
-        painter.translate(text_rect.left(), text_rect.top())
-        doc.drawContents(painter)
-        painter.translate(-text_rect.left(), -text_rect.top())
+        try:
+            painter.save()
+            color = (
+                opt.palette.color(QtGui.QPalette.ColorRole.HighlightedText)
+                if opt.state & QtWidgets.QStyle.StateFlag.State_Selected
+                else opt.palette.color(QtGui.QPalette.ColorRole.Text)
+            )
+            doc = QtGui.QTextDocument()
+            doc.setDefaultFont(opt.font)
+            to = QtGui.QTextOption()
+            to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+            to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+            doc.setDefaultTextOption(to)
+            doc.setPlainText(opt.text)
+            bf = QtGui.QTextBlockFormat()
+            bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
+            cur = QtGui.QTextCursor(doc)
+            cur.select(QtGui.QTextCursor.SelectionType.Document)
+            cur.mergeBlockFormat(bf)
+            doc.setTextWidth(max(1, text_rect.width()))
+            cur = QtGui.QTextCursor(doc)
+            cur.select(QtGui.QTextCursor.SelectionType.Document)
+            cf = QtGui.QTextCharFormat()
+            cf.setForeground(QtGui.QBrush(color))
+            cur.mergeCharFormat(cf)
+            painter.translate(text_rect.left(), text_rect.top())
+            doc.drawContents(painter)
+            painter.translate(-text_rect.left(), -text_rect.top())
+        except Exception:
+            painter.save()
+            role = QtGui.QPalette.ColorRole.HighlightedText if (opt.state & QtWidgets.QStyle.StateFlag.State_Selected) else QtGui.QPalette.ColorRole.Text
+            painter.setPen(opt.palette.color(role))
+            painter.drawText(QtCore.QRectF(text_rect), opt.text, QtGui.QTextOption())
+            painter.restore()
         painter.restore()
 
     def sizeHint(self, option: QtWidgets.QStyleOptionViewItem, index) -> QtCore.QSize:
-        opt = QtWidgets.QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        width = int(opt.rect.width() or 0)
-        if width <= 0 and isinstance(opt.widget, QtWidgets.QAbstractItemView):
-            try:
-                width = int(opt.widget.viewport().width())
-            except Exception:
-                width = 0
-        check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
-        if check_state is not None:
-            width -= 24
-        width = max(120, width or 220)
-        doc = QtGui.QTextDocument()
-        doc.setDefaultFont(opt.font)
-        to = QtGui.QTextOption()
-        to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
-        to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
-        doc.setDefaultTextOption(to)
-        doc.setPlainText(opt.text)
-        bf = QtGui.QTextBlockFormat()
-        bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
-        cur = QtGui.QTextCursor(doc)
-        cur.select(QtGui.QTextCursor.SelectionType.Document)
-        cur.mergeBlockFormat(bf)
-        doc.setTextWidth(width)
-        height = int(doc.size().height()) + 6
-        return QtCore.QSize(width, max(height, 22))
+        try:
+            opt = QtWidgets.QStyleOptionViewItem(option)
+            self.initStyleOption(opt, index)
+            width = int(opt.rect.width() or 0)
+            if width <= 0 and isinstance(opt.widget, QtWidgets.QAbstractItemView):
+                try:
+                    width = int(opt.widget.viewport().width())
+                except Exception:
+                    width = 0
+            check_state = index.data(QtCore.Qt.ItemDataRole.CheckStateRole)
+            if check_state is not None:
+                width -= 24
+            width = max(120, width or 220)
+            doc = QtGui.QTextDocument()
+            doc.setDefaultFont(opt.font)
+            to = QtGui.QTextOption()
+            to.setWrapMode(QtGui.QTextOption.WrapMode.WordWrap)
+            to.setAlignment(QtCore.Qt.AlignmentFlag.AlignJustify)
+            doc.setDefaultTextOption(to)
+            doc.setPlainText(opt.text)
+            bf = QtGui.QTextBlockFormat()
+            bf.setLineHeight(_LINE_HEIGHT_RATIO, 1)  # 1 = ProportionalHeight
+            cur = QtGui.QTextCursor(doc)
+            cur.select(QtGui.QTextCursor.SelectionType.Document)
+            cur.mergeBlockFormat(bf)
+            doc.setTextWidth(width)
+            height = int(doc.size().height()) + 6
+            return QtCore.QSize(width, max(height, 22))
+        except Exception:
+            return QtCore.QSize(220, 30)
 
 
 class AutoComboBox(QtWidgets.QComboBox):
@@ -250,7 +269,6 @@ class AutoComboBox(QtWidgets.QComboBox):
                 return
             avail = screen.availableGeometry()
             max_h = max(80, int(avail.bottom() - below_y - 6))
-            # Всегда позиционируем ниже, и ограничиваем высоту доступным пространством.
             pg.setTop(below_y)
             pg.setHeight(min(int(pg.height()), max_h))
             popup.setGeometry(pg)
@@ -405,12 +423,10 @@ class AutoComboBox(QtWidgets.QComboBox):
                     desired_h = visible * row_h + (view.frameWidth() * 2) + 2
                     view.setMinimumHeight(int(desired_h))
 
-                    # Width: keep close to combo width to allow wrapping
-                    desired_w = max(int(self.width()), 180)
-                    # Не используем fixedWidth (и не трогаем окно попапа после открытия) —
-                    # на некоторых Windows-сборках это вызывает "мерцание" и неправильную позицию попапа
-                    # при первом открытии/клике.
-                    view.setMinimumWidth(int(desired_w))
+                    # Во всех комбобоксах: ширина списка = ширина поля, элементы в размер с полем
+                    combo_w = int(self.width())
+                    view_w = max(combo_w - 12, 180)
+                    view.setFixedWidth(view_w)
 
                     # Hide scrollbar when everything fits
                     if count <= visible:
@@ -425,6 +441,5 @@ class AutoComboBox(QtWidgets.QComboBox):
             pass
 
         super().showPopup()
-        # Принудительно позиционируем попап снизу (после фактического showPopup()).
         QtCore.QTimer.singleShot(0, self._force_popup_below)
 
