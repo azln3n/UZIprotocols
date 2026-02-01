@@ -117,8 +117,8 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         tl.setContentsMargins(10, 10, 10, 10)
         tl.setSpacing(8)
 
-        self.tmpl_online_label = QtWidgets.QLabel("Онлайн (без подписи): не задан")
-        self.tmpl_hand_label = QtWidgets.QLabel("На руки (с подписью): не задан")
+        self.tmpl_online_label = QtWidgets.QLabel("Онлайн (с подписью): не задан")
+        self.tmpl_hand_label = QtWidgets.QLabel("На руки (без подписи): не задан")
         self.tmpl_online_label.setWordWrap(True)
         self.tmpl_hand_label.setWordWrap(True)
         tl.addWidget(self.tmpl_online_label)
@@ -145,12 +145,12 @@ class SettingsStructureDialog(QtWidgets.QDialog):
             b.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Fixed)
             # Не даём глобальному авто-расширению ломать сетку (иначе кнопки могут наезжать)
             b.setProperty("no_autosize", True)
-        self.pick_online_btn.clicked.connect(lambda: self._pick_template_variant("unsigned"))
-        self.pick_hand_btn.clicked.connect(lambda: self._pick_template_variant("signed"))
-        self.clear_online_btn.clicked.connect(lambda: self._clear_template_variant("unsigned"))
-        self.clear_hand_btn.clicked.connect(lambda: self._clear_template_variant("signed"))
-        self.export_online_btn.clicked.connect(lambda: self._export_template_variant("unsigned"))
-        self.export_hand_btn.clicked.connect(lambda: self._export_template_variant("signed"))
+        self.pick_online_btn.clicked.connect(lambda: self._pick_template_variant("signed"))
+        self.pick_hand_btn.clicked.connect(lambda: self._pick_template_variant("unsigned"))
+        self.clear_online_btn.clicked.connect(lambda: self._clear_template_variant("signed"))
+        self.clear_hand_btn.clicked.connect(lambda: self._clear_template_variant("unsigned"))
+        self.export_online_btn.clicked.connect(lambda: self._export_template_variant("signed"))
+        self.export_hand_btn.clicked.connect(lambda: self._export_template_variant("unsigned"))
         grid_btns.addWidget(self.pick_online_btn, 0, 0)
         grid_btns.addWidget(self.pick_hand_btn, 0, 1)
         grid_btns.addWidget(self.clear_online_btn, 1, 0)
@@ -340,14 +340,14 @@ class SettingsStructureDialog(QtWidgets.QDialog):
         self.export_hand_btn.setEnabled(enabled)
 
         if not st_id:
-            self.tmpl_online_label.setText("Онлайн (без подписи): —")
-            self.tmpl_hand_label.setText("На руки (с подписью): —")
+            self.tmpl_online_label.setText("Онлайн (с подписью): —")
+            self.tmpl_hand_label.setText("На руки (без подписи): —")
             return
 
-        online = get_study_template_variant(int(st_id), "unsigned")
-        hand = get_study_template_variant(int(st_id), "signed")
-        self.tmpl_online_label.setText("Онлайн (без подписи): " + ("задан" if online else "не задан"))
-        self.tmpl_hand_label.setText("На руки (с подписью): " + ("задан" if hand else "не задан"))
+        online = get_study_template_variant(int(st_id), "signed")
+        hand = get_study_template_variant(int(st_id), "unsigned")
+        self.tmpl_online_label.setText("Онлайн (с подписью): " + ("задан" if online else "не задан"))
+        self.tmpl_hand_label.setText("На руки (без подписи): " + ("задан" if hand else "не задан"))
 
     def _pick_template_variant(self, variant: str) -> None:
         st = self._current_study()
