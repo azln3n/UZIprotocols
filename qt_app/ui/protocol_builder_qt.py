@@ -675,7 +675,7 @@ class ProtocolBuilderQt(QtCore.QObject):
     def _create_field_widget(self, conn, meta: FieldMeta) -> FieldBinding:
         label = QtWidgets.QLabel(meta.name)
         # Чуть меньше расстояние между подписью и полем
-        label.setStyleSheet("font-weight: bold; padding: 4px 4px;")
+        label.setStyleSheet("font-weight: normal; padding: 4px 4px;")
 
         container = QtWidgets.QWidget()
         container.setStyleSheet("border: 0px;")
